@@ -15,7 +15,11 @@
 #include "envDep.h"
 
 //#include "myGL.hxx"
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 #include "myEigen.hxx"
 #include "GLMaterial.hxx"
