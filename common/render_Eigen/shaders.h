@@ -1,6 +1,6 @@
 ﻿////////////////////////////////////////////////////////////////////
 //
-// $Id: shaders.h 2025/07/19 15:38:44 kanai Exp 
+// $Id: shaders.h 2026/04/30 18:01:29 tkskn Exp 
 //
 // Copyright (c) 2021-2025 Takashi Kanai
 // Released under the MIT license
@@ -11,7 +11,7 @@
 #define _SHADERS_H 1
 
 //
-// OpenGL 3.3用
+// for OpenGL 3.3
 //
 
 //
@@ -63,14 +63,14 @@ void main()
 }
 )glsl";
 
-// ライト4つバージョン（点光源・平行光源 + 定数重み付き）
+// Four-light version (point/directional lights + constant weights)
 static const GLchar *fragment_shader_Phong_source33 = R"glsl(
 #version 330 core
 
 in vec4 frag_position;
 in vec3 frag_normal;
 
-uniform vec4 light_position[4];     // wで点光源/平行光源の区別
+uniform vec4 light_position[4];     // Distinguish point/directional by w
 uniform bool light_enabled[4];
 
 uniform vec3 ambient_color;
@@ -87,39 +87,39 @@ void main()
     vec3 viewDir = normalize(-frag_position.xyz);
     vec3 finalColor = vec3(0.0);
 
-    // 各ライトの強さ係数（Key, Fill, Rim, Ambient風）
+    // Per-light intensity factors (Key, Fill, Rim, Ambient-like)
     //float light_weights[4] = float[4](0.7, 0.3, 0.5, 0.2);
-    float light_weights[4] = float[4](0.56, 0.24, 0.40, 0.16); // 元の80%
+    float light_weights[4] = float[4](0.56, 0.24, 0.40, 0.16); // 80% of original
 
     for (int i = 0; i < 4; ++i) {
       if (!light_enabled[i]) continue;
 
       vec3 lightDir;
       if (light_position[i].w == 0.0) {
-        // 平行光源（方向）
+        // Directional light (direction)
         lightDir = normalize(-light_position[i].xyz);
       } else {
-        // 点光源（位置）
+        // Point light (position)
         lightDir = normalize(light_position[i].xyz - frag_position.xyz);
       }
 
       vec3 halfwayDir = normalize(lightDir + viewDir);
 
-      // シャドウ風の効果
+      // Shadow-like effect
       float ndotl = dot(normal, lightDir);
-      float shadow = ndotl > 0.0 ? 1.0 : 0.1; // ← ここが擬似シャドウ
+      float shadow = ndotl > 0.0 ? 1.0 : 0.1; // pseudo-shadow term
 
       float diff = max(ndotl, 0.0);
       float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
 
-      // 簡易AO
-      //float ao = pow(1.0 - abs(dot(normal, vec3(0.0, 1.0, 0.0))), 2.0);  // 上からの遮蔽度
+      // Simple AO
+      //float ao = pow(1.0 - abs(dot(normal, vec3(0.0, 1.0, 0.0))), 2.0);  // occlusion amount from above
       //vec3 ambient = ambient_color * mix(0.3, 1.0, ao);
       vec3 ambient  = ambient_color;
       vec3 diffuse  = diffuse_color * diff * shadow;
       vec3 specular = specular_color * spec * shadow;
 
-      // 重みを掛けて加算
+      // Accumulate with weights
       finalColor += (ambient + diffuse + specular) * light_weights[i];
     }
     finalColor += emission_color;
@@ -183,35 +183,35 @@ static const GLchar *geometry_lines3d_source33 = R"glsl(
 
   uniform mat4 modelview;
   uniform mat4 projection;
-  uniform vec2 viewport_size; // 画面解像度（ピクセル）
-  uniform float line_width;   // 線の太さ（ピクセル単位）
-  uniform float aspect;       // 画面アスペクト比（width / height）
+  uniform vec2 viewport_size; // Screen resolution (pixels)
+  uniform float line_width;   // Line width (in pixels)
+  uniform float aspect;       // Screen aspect ratio (width / height)
   
-  out float v_dist;  // 線の中心からの距離（アンチエイリアシング用）
+  out float v_dist;  // Distance from line center (for anti-aliasing)
 
   void main()
   {
-    // 射影変換
+    // Projection transform
     vec4 p0 = projection * modelview * gl_in[0].gl_Position;
     vec4 p1 = projection * modelview * gl_in[1].gl_Position;
 
-    // NDC 変換（クリップ空間 → -1~1）
+    // NDC conversion (clip space -> -1 to 1)
     vec2 ndc0 = p0.xy / p0.w;
     vec2 ndc1 = p1.xy / p1.w;
 
-    // 線の方向とその法線ベクトル
+    // Line direction and its normal vector
     vec2 dir = normalize(ndc1 - ndc0);
     vec2 normal = vec2(-dir.y, dir.x);
 
-    // アスペクト比補正
+    // Aspect ratio correction
     normal.x *= aspect;
 
-    // ピクセル → NDC 換算：viewport の幅に対する比率
+    // Pixel -> NDC conversion: ratio to viewport width
     float pixel_size = 2.0 / viewport_size.x;
     vec2 offset = normal * line_width * 0.5 * pixel_size;
 
-    // 四角形を構成する 4 頂点出力（正しい深度値を保持）
-    // 線の中心からの距離を計算してアンチエイリアシング用に出力
+    // Emit 4 vertices composing a quad (preserve correct depth)
+    // Compute distance from line center for anti-aliasing
     v_dist = line_width * 0.5; gl_Position = vec4(ndc0 + offset, p0.z / p0.w, 1.0); EmitVertex();
     v_dist = -line_width * 0.5; gl_Position = vec4(ndc0 - offset, p0.z / p0.w, 1.0); EmitVertex();
     v_dist = line_width * 0.5; gl_Position = vec4(ndc1 + offset, p1.z / p1.w, 1.0); EmitVertex();
@@ -226,18 +226,18 @@ static const GLchar *fragment_lines3d_source33 = R"glsl(
 
   uniform vec3 line_color;
   uniform float line_width;
-  uniform float depth_offset;  // 深度オフセット（0.0001 など小さな値）
+  uniform float depth_offset;  // Depth offset (small value such as 0.0001)
   
-  in float v_dist;  // 線の中心からの距離
+  in float v_dist;  // Distance from line center
 
   void main() {
-    // 線の中心からの距離を正規化（0.0が中心、1.0が端）
+    // Normalize distance from line center (0.0 center, 1.0 edge)
     float distance_from_center = abs(v_dist) / (line_width * 0.5);
     
-    // アンチエイリアシング：境界付近でアルファ値を滑らかに変化させる
+    // Anti-aliasing: smoothly vary alpha near boundaries
     float alpha = 1.0 - smoothstep(0.8, 1.0, distance_from_center);
     
-    // シェーダーベースのポリゴンオフセット：深度値を少し手前に調整
+    // Shader-based polygon offset: move depth slightly forward
     gl_FragDepth = gl_FragCoord.z - depth_offset;
     
     fragColor = vec4(line_color, alpha);
@@ -251,10 +251,10 @@ static const GLchar *fragment_lines3d_source33 = R"glsl(
 static const GLchar *vertex_points2d_source33 = R"glsl(
 #version 330 core
 layout(location = 0) in vec2 aPos;
-uniform vec2 screenSize; // 画面サイズ（width, height）
+uniform vec2 screenSize; // Screen size (width, height)
 
 void main() {
-    // 座標を正規化デバイス座標系に変換
+    // Convert coordinates to normalized device coordinates
     vec2 normalizedPos = (aPos / screenSize) * 2.0 - 1.0;
     gl_Position = vec4(normalizedPos, 0.0, 1.0);
 }
@@ -266,29 +266,29 @@ static const GLchar *geometry_points2d_source33 = R"glsl(
 layout(points) in;
 layout(triangle_strip, max_vertices = 4) out;
 
-uniform float pointSize;     // NDC空間での半サイズ（縦横同じサイズ）
-uniform vec2 screenSize;     // 画面サイズ
+uniform float pointSize;     // Half-size in NDC space (same in both axes)
+uniform vec2 screenSize;     // Screen size
 
 void main() {
     vec4 center = gl_in[0].gl_Position;
     
-    // ピクセルサイズをNDC空間に変換
+    // Convert pixel size to NDC space
     float pixelSize = pointSize / screenSize.x * 2.0;
     vec2 offset = vec2(pixelSize);
 
-    // 左下
+    // Bottom-left
     gl_Position = center + vec4(-offset.x, -offset.y, 0.0, 0.0);
     EmitVertex();
 
-    // 右下
+    // Bottom-right
     gl_Position = center + vec4( offset.x, -offset.y, 0.0, 0.0);
     EmitVertex();
 
-    // 左上
+    // Top-left
     gl_Position = center + vec4(-offset.x,  offset.y, 0.0, 0.0);
     EmitVertex();
 
-    // 右上
+    // Top-right
     gl_Position = center + vec4( offset.x,  offset.y, 0.0, 0.0);
     EmitVertex();
 
@@ -318,7 +318,7 @@ static const GLchar *vertex_lines2d_source33 = R"glsl(
   uniform vec2 viewport_size;
 
   void main() {
-    // 画面座標 → NDC (-1〜1)
+    // Screen coordinates -> NDC (-1 to 1)
     vec2 ndc = (position / viewport_size) * 2.0 - 1.0;
     gl_Position = vec4(ndc, 0.0, 1.0);
   }
@@ -329,8 +329,8 @@ static const GLchar *geometry_lines2d_source33 = R"glsl(
   layout(lines) in;
   layout(triangle_strip, max_vertices = 4) out;
 
-  uniform float line_width;    // ピクセル単位
-  uniform vec2 viewport_size;  // 画面サイズ (width, height)
+  uniform float line_width;    // In pixels
+  uniform vec2 viewport_size;  // Screen size (width, height)
 
   void main() {
     // NDC -> screen space
@@ -341,7 +341,7 @@ static const GLchar *geometry_lines2d_source33 = R"glsl(
     vec2 normal = vec2(-dir.y, dir.x);
     vec2 offset = normal * line_width * 0.5;
 
-    // Screen space → NDC
+    // Screen space -> NDC
     vec2 o_ndc = offset / viewport_size * 2.0;
 
     vec2 ndc0 = gl_in[0].gl_Position.xy / gl_in[0].gl_Position.w;
