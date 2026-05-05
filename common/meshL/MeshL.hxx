@@ -1,6 +1,6 @@
 ﻿////////////////////////////////////////////////////////////////////
 //
-// $Id: MeshL.hxx 2025/07/17 23:56:43 kanai Exp 
+// $Id: MeshL.hxx 2026/05/05 14:10:40 kanai Exp 
 //
 // Copyright (c) 2021-2025 Takashi Kanai
 // Released under the MIT license
@@ -215,6 +215,18 @@ class MeshL {
     addHalfedge(fc, v0);
     addHalfedge(fc, v1);
     addHalfedge(fc, v2);
+    return fc;
+  };
+
+  std::shared_ptr<FaceL> addRectangle(std::shared_ptr<VertexL> v0,
+                                      std::shared_ptr<VertexL> v1,
+                                      std::shared_ptr<VertexL> v2,
+                                      std::shared_ptr<VertexL> v3 ) {
+    std::shared_ptr<FaceL> fc = addFace();
+    addHalfedge(fc, v0);
+    addHalfedge(fc, v1);
+    addHalfedge(fc, v2);
+    addHalfedge(fc, v3);
     return fc;
   };
 
