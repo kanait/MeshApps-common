@@ -70,6 +70,8 @@ class GLPanel {
   static constexpr float HALF_FOV_TO_RAD = M_PI / 360.0f;
   static constexpr float MIN_SCALE_2D = 0.01f;
   static constexpr float ZOOM_SENSITIVITY = 0.1f;
+  /** Screen-parallel pan: scales mouse delta to world units at the look distance. */
+  static constexpr float PAN_WORLD_PER_PIXEL_SCALE = 1.0f;
 
   GLPanel() : gradVAO_(0), gradVBO_(0) {};
   ~GLPanel(){
@@ -807,7 +809,43 @@ class GLPanel {
   };
 
   void updateMove(int x, int y) {
-    manip_.updateMove(x, y, manip_.scrn_x(), manip_.scrn_y());
+    const int ox = manip_.scrn_x();
+    const int oy = manip_.scrn_y();
+    const float pix_dx = static_cast<float>(x - ox);
+    const float pix_dy = static_cast<float>(-(y - oy));
+
+    Eigen::Vector3f forward = view_params_.look_point - view_params_.view_point;
+    const float dist = forward.norm();
+    if (dist < 1e-8f) {
+      manip_.setScrnXY(x, y);
+      return;
+    }
+    forward /= dist;
+
+    Eigen::Vector3f up_ref(0.0f, 1.0f, 0.0f);
+    Eigen::Vector3f right = forward.cross(up_ref);
+    const float rl = right.norm();
+    if (rl < 1e-6f) {
+      up_ref = Eigen::Vector3f(1.0f, 0.0f, 0.0f);
+      right = forward.cross(up_ref).normalized();
+    } else {
+      right /= rl;
+    }
+    const Eigen::Vector3f up = right.cross(forward).normalized();
+
+    const float fov_rad = projection_.fov * static_cast<float>(M_PI) / 180.0f;
+    const float vp_h =
+        static_cast<float>(viewport_.height > 0 ? viewport_.height : 1);
+    const float world_per_pixel =
+        PAN_WORLD_PER_PIXEL_SCALE * (2.0f * dist * std::tan(fov_rad * 0.5f)) / vp_h;
+
+    const Eigen::Vector3f delta =
+        right * (pix_dx * world_per_pixel) + up * (pix_dy * world_per_pixel);
+
+    // Match "drag the scene" (cursor and object move together on screen).
+    view_params_.view_point -= delta;
+    view_params_.look_point -= delta;
+
     manip_.setScrnXY(x, y);
   };
 
