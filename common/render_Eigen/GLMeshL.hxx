@@ -33,13 +33,25 @@ struct VertexAttribColor {
   Eigen::Vector3f color;
 };
 
+struct VertexAttribTextured {
+  Eigen::Vector3f position;
+  Eigen::Vector3f normal;
+  Eigen::Vector2f texcoord;
+};
+
+struct AttribDesc {
+  GLuint index;
+  GLint size;
+  size_t offset;
+};
+
 class GLMeshL : public GLMesh {
  public:
-  GLMeshL() : meshl_(nullptr) {};
-  ~GLMeshL() {
-    // deleteVAOVBO();
-  };
+  GLMeshL() : meshl_(nullptr), tex_id_(0), has_textured_buffer_(false) {};
+  // Globals are destroyed after glfwTerminate(); do not call OpenGL here.
+  ~GLMeshL() { resetVAOVBOHandles(); };
 
+  // Requires a current OpenGL context. Call before glfwDestroyWindow/glfwTerminate.
   void deleteVAOVBO() {
     if (vao_flat_ != 0) {
       glDeleteVertexArrays(1, &vao_flat_);
@@ -65,6 +77,16 @@ class GLMeshL : public GLMesh {
       glDeleteBuffers(1, &vbo_wire_);
       vbo_wire_ = 0;
     }
+    if (vao_texture_ != 0) {
+      glDeleteVertexArrays(1, &vao_texture_);
+      vao_texture_ = 0;
+    }
+    if (vbo_texture_ != 0) {
+      glDeleteBuffers(1, &vbo_texture_);
+      vbo_texture_ = 0;
+    }
+    has_textured_buffer_ = false;
+    vertex_count_texture_ = 0;
   };
 
   void setMesh(std::shared_ptr<MeshL> mesh) {
@@ -76,7 +98,26 @@ class GLMeshL : public GLMesh {
   const std::shared_ptr<MeshL> mesh() const { return meshl_; };
   bool empty() const { return (meshl_ != NULL) ? false : true; };
 
+  void setTexID(unsigned int id) { tex_id_ = id; };
+  unsigned int texID() const { return tex_id_; };
+  bool hasTexturedBuffer() const { return has_textured_buffer_; };
+
+  void drawTextured(GLShader& shader) {
+    if (!has_textured_buffer_ || tex_id_ == 0) return;
+
+    glUseProgram(shader.textureShaderProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex_id_);
+    glBindVertexArray(vao_texture_);
+    glDrawArrays(GL_TRIANGLES, 0, vertex_count_texture_);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(0);
+  };
+
   void draw(GLShader& shader) {
+    if (isDrawTexture() && has_textured_buffer_) {
+      return;
+    }
     if ((isSmoothShading() == false) && (isDrawWireframe() == false)) {
       // flat shading
       // std::cout << "program " << shader.phongShaderProgram << std::endl;
@@ -199,6 +240,22 @@ class GLMeshL : public GLMesh {
     // === Wireframe (flat) ===
     auto wire_buffer = generateWireframeVertexBuffer(*meshl_);
     initLines3dVAO(wire_buffer);
+
+    // === Textured flat shading ===
+    if (!meshl_->texcoords().empty()) {
+      auto texture_buffer = generateTexturedFlatVertexBuffer(*meshl_);
+      vertex_count_texture_ = texture_buffer.size();
+      has_textured_buffer_ = (vertex_count_texture_ > 0);
+      if (has_textured_buffer_) {
+        setupVAOEx(vao_texture_, vbo_texture_, texture_buffer,
+                   {{0, 3, offsetof(VertexAttribTextured, position)},
+                    {1, 3, offsetof(VertexAttribTextured, normal)},
+                    {2, 2, offsetof(VertexAttribTextured, texcoord)}});
+      }
+    } else {
+      has_textured_buffer_ = false;
+      vertex_count_texture_ = 0;
+    }
   };
 
   void initLines3dVAO(std::vector<float>& lines_buffer) {
@@ -225,14 +282,28 @@ class GLMeshL : public GLMesh {
   const GLMaterial& material() const { return mtln_; };
 
  private:
+  void resetVAOVBOHandles() {
+    vao_flat_ = vbo_flat_ = 0;
+    vao_smooth_ = vbo_smooth_ = 0;
+    vao_wire_ = vbo_wire_ = 0;
+    vao_texture_ = vbo_texture_ = 0;
+    has_textured_buffer_ = false;
+    vertex_count_texture_ = 0;
+  }
+
   std::shared_ptr<MeshL> meshl_;
 
   GLuint vao_flat_ = 0, vbo_flat_ = 0;
   GLuint vao_smooth_ = 0, vbo_smooth_ = 0;
   GLuint vao_wire_ = 0, vbo_wire_ = 0;
+  GLuint vao_texture_ = 0, vbo_texture_ = 0;
   GLuint vertex_count_flat_ = 0;
   GLuint vertex_count_smooth_ = 0;
   GLuint vertex_count_wire_ = 0;
+  GLuint vertex_count_texture_ = 0;
+
+  unsigned int tex_id_;
+  bool has_textured_buffer_;
 
   GLMaterial mtln_;
 
@@ -304,6 +375,73 @@ class GLMeshL : public GLMesh {
           buffer.push_back({p1, n, fixedColor});
           buffer.push_back({p2, n, fixedColor});
         }
+      }
+    }
+
+    return buffer;
+  };
+
+  template <typename VertexAttribT>
+  void setupVAOEx(GLuint& vao, GLuint& vbo,
+                  const std::vector<VertexAttribT>& buffer,
+                  const std::vector<AttribDesc>& attribLayout) {
+    if (vao != 0) {
+      glDeleteVertexArrays(1, &vao);
+      vao = 0;
+    }
+    if (vbo != 0) {
+      glDeleteBuffers(1, &vbo);
+      vbo = 0;
+    }
+
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribT) * buffer.size(),
+                 buffer.data(), GL_STATIC_DRAW);
+
+    for (const auto& desc : attribLayout) {
+      glVertexAttribPointer(desc.index, desc.size, GL_FLOAT, GL_FALSE,
+                            sizeof(VertexAttribT), (void*)desc.offset);
+      glEnableVertexAttribArray(desc.index);
+    }
+
+    glBindVertexArray(0);
+  };
+
+  std::vector<VertexAttribTextured> generateTexturedFlatVertexBuffer(
+      MeshL& mesh) {
+    std::vector<VertexAttribTextured> buffer;
+
+    for (const auto& face : mesh.faces()) {
+      std::vector<std::shared_ptr<HalfedgeL>> he_list(face->halfedges().begin(),
+                                                      face->halfedges().end());
+      if (he_list.size() < 3) continue;
+
+      bool has_uv = true;
+      for (const auto& he : he_list) {
+        if (!he->isTexcoord()) {
+          has_uv = false;
+          break;
+        }
+      }
+      if (!has_uv) continue;
+
+      Eigen::Vector3f n = face->normal().cast<float>();
+
+      for (size_t i = 1; i + 1 < he_list.size(); ++i) {
+        auto h0 = he_list[0], h1 = he_list[i], h2 = he_list[i + 1];
+        auto uv0 = [&](const std::shared_ptr<HalfedgeL>& he) {
+          const Eigen::Vector3d& t = he->texcoord()->point();
+          return Eigen::Vector2f(static_cast<float>(t.x()),
+                                 static_cast<float>(t.y()));
+        };
+
+        buffer.push_back({h0->vertex()->point().cast<float>(), n, uv0(h0)});
+        buffer.push_back({h1->vertex()->point().cast<float>(), n, uv0(h1)});
+        buffer.push_back({h2->vertex()->point().cast<float>(), n, uv0(h2)});
       }
     }
 

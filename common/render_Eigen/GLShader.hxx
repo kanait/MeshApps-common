@@ -22,6 +22,7 @@ struct GLShader {
   GLuint points2dShaderProgram=0;
   GLuint lines2dShaderProgram=0;
   GLuint lines3dShaderProgram=0;
+  GLuint textureShaderProgram=0;
   
   // Loc
   GLint projectionLoc = -1;
@@ -34,6 +35,18 @@ struct GLShader {
   GLint emissioncolorLoc = -1;
   GLint specularcolorLoc = -1;
   GLint shininessLoc = -1;
+  // Loc for textured Phong shading
+  GLint textureProjectionLoc = -1;
+  GLint textureModelviewLoc = -1;
+  GLint textureNormalmatrixLoc = -1;
+  GLint textureLightpositionLoc[4] = {-1,-1,-1,-1};
+  GLint textureLightenabledLoc[4] = {-1,-1,-1,-1};
+  GLint textureAmbientcolorLoc = -1;
+  GLint textureDiffusecolorLoc = -1;
+  GLint textureEmissioncolorLoc = -1;
+  GLint textureSpecularcolorLoc = -1;
+  GLint textureShininessLoc = -1;
+  GLint textureMapLoc = -1;
   // Loc for flat shading
   GLint wireframemodelviewLoc = -1;
   GLint wireframeprojectionLoc = -1;

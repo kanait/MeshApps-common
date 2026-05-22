@@ -366,4 +366,87 @@ static const GLchar *fragment_lines2d_source33 = R"glsl(
   }
 )glsl";
 
+//
+// shaders for textured Phong shading
+//
+
+static const GLchar *vertex_shader_Texture_source33 = R"glsl(
+#version 330 core
+
+layout(location = 0) in vec3 in_position;
+layout(location = 1) in vec3 in_normal;
+layout(location = 2) in vec2 in_texcoord;
+
+uniform mat4 modelview;
+uniform mat4 projection;
+uniform mat3 normalMatrix;
+
+out vec4 frag_position;
+out vec3 frag_normal;
+out vec2 frag_texcoord;
+
+void main()
+{
+    frag_position = modelview * vec4(in_position, 1.0);
+    frag_normal = normalize(normalMatrix * in_normal);
+    frag_texcoord = in_texcoord;
+    gl_Position = projection * frag_position;
+}
+)glsl";
+
+static const GLchar *fragment_shader_Texture_source33 = R"glsl(
+#version 330 core
+
+in vec4 frag_position;
+in vec3 frag_normal;
+in vec2 frag_texcoord;
+
+uniform sampler2D texture_map;
+uniform vec4 light_position[4];
+uniform bool light_enabled[4];
+
+uniform vec3 ambient_color;
+uniform vec3 diffuse_color;
+uniform vec3 specular_color;
+uniform vec3 emission_color;
+uniform float shininess;
+
+out vec4 fragColor;
+
+void main()
+{
+    vec3 normal = normalize(frag_normal);
+    vec3 viewDir = normalize(-frag_position.xyz);
+    vec3 baseColor = texture(texture_map, frag_texcoord).rgb;
+    vec3 finalColor = vec3(0.0);
+    float light_weights[4] = float[4](0.56, 0.24, 0.40, 0.16);
+
+    for (int i = 0; i < 4; ++i) {
+      if (!light_enabled[i]) continue;
+
+      vec3 lightDir;
+      if (light_position[i].w == 0.0) {
+        lightDir = normalize(-light_position[i].xyz);
+      } else {
+        lightDir = normalize(light_position[i].xyz - frag_position.xyz);
+      }
+
+      vec3 halfwayDir = normalize(lightDir + viewDir);
+      float ndotl = dot(normal, lightDir);
+      float shadow = ndotl > 0.0 ? 1.0 : 0.1;
+      float diff = max(ndotl, 0.0);
+      float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
+
+      vec3 ambient  = ambient_color * baseColor;
+      vec3 diffuse  = diffuse_color * baseColor * diff * shadow;
+      vec3 specular = specular_color * spec * shadow;
+
+      finalColor += (ambient + diffuse + specular) * light_weights[i];
+    }
+    finalColor += emission_color;
+
+    fragColor = vec4(finalColor, 1.0);
+}
+)glsl";
+
 #endif  // _SHADERS_H

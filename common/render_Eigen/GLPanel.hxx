@@ -164,6 +164,39 @@ class GLPanel {
     shader_.shininessLoc =
         glGetUniformLocation(shader_.phongShaderProgram, "shininess");
 
+    // Shaders for textured Phong shading
+    shader_.textureShaderProgram = createShaderProgram(
+        vertex_shader_Texture_source33, nullptr,
+        fragment_shader_Texture_source33);
+
+    shader_.textureProjectionLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "projection");
+    shader_.textureModelviewLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "modelview");
+    shader_.textureNormalmatrixLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "normalMatrix");
+
+    for (int i = 0; i < NUM_LIGHTS; ++i) {
+      std::string name = "light_position[" + std::to_string(i) + "]";
+      shader_.textureLightpositionLoc[i] =
+          glGetUniformLocation(shader_.textureShaderProgram, name.c_str());
+      name = "light_enabled[" + std::to_string(i) + "]";
+      shader_.textureLightenabledLoc[i] =
+          glGetUniformLocation(shader_.textureShaderProgram, name.c_str());
+    }
+    shader_.textureAmbientcolorLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "ambient_color");
+    shader_.textureDiffusecolorLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "diffuse_color");
+    shader_.textureEmissioncolorLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "emission_color");
+    shader_.textureSpecularcolorLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "specular_color");
+    shader_.textureShininessLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "shininess");
+    shader_.textureMapLoc =
+        glGetUniformLocation(shader_.textureShaderProgram, "texture_map");
+
     // Shaders for wireframe rendering
     shader_.wireframeShaderProgram = createShaderProgram( vertex_wireframe_source33, nullptr,
                                                           fragment_wireframe_source33 );
@@ -397,9 +430,8 @@ class GLPanel {
 
     ::glEnable(GL_NORMALIZE);
 
-    // transparency settings
+    // transparency settings (core profile has no GL_ALPHA_TEST)
     if (isTransparency) {
-      ::glEnable(GL_ALPHA_TEST);
       ::glEnable(GL_BLEND);
       ::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
@@ -598,6 +630,11 @@ class GLPanel {
     updateMaterial(mtl);
   };
 
+  void updateTexture(GLMaterial& mtl) {
+    updateProjViewLightTexture();
+    updateMaterialTexture(mtl);
+  };
+
   // void updateProjViewLight(Eigen::Matrix4f& proj, Eigen::Matrix4f& mv) {
   void updateProjViewLight() {
     glUseProgram(shader_.phongShaderProgram);
@@ -677,6 +714,49 @@ class GLPanel {
     glUniform3fv(shader_.emissioncolorLoc, 1, mtl.emission3().data());
     glUniform3fv(shader_.specularcolorLoc, 1, mtl.specular3().data());
     glUniform1f(shader_.shininessLoc, mtl.shininess());
+  };
+
+  void updateProjViewLightTexture() {
+    glUseProgram(shader_.textureShaderProgram);
+    auto proj =
+        createProjectionMatrix(projection_.fov, viewport_.aspect,
+                               projection_.near_plane, projection_.far_plane);
+    glUniformMatrix4fv(shader_.textureProjectionLoc, 1, GL_FALSE, proj.data());
+    auto mv = createModelViewMatrixArcball(
+        view_params_.view_point, view_params_.look_point, manip_.mNow(),
+        manip_.offset(), manip_.seezo());
+    glUniformMatrix4fv(shader_.textureModelviewLoc, 1, GL_FALSE, mv.data());
+    auto nmat = computeNormalMatrix(mv);
+    glUniformMatrix3fv(shader_.textureNormalmatrixLoc, 1, GL_FALSE,
+                       nmat.data());
+
+    for (int i = 0; i < NUM_LIGHTS; ++i) {
+      Eigen::Vector4f light_world = light_position_[i];
+      Eigen::Vector4f light_view4 = mv * light_world;
+      Eigen::Vector4f light_view;
+
+      if (light_world.w() == 0.0f) {
+        Eigen::Vector3f dir = light_view4.head<3>().normalized();
+        light_view << dir[0], dir[1], dir[2], 0.0f;
+      } else {
+        Eigen::Vector3f pos = light_view4.hnormalized();
+        light_view << pos[0], pos[1], pos[2], 1.0f;
+      }
+
+      glUniform4fv(shader_.textureLightpositionLoc[i], 1, light_view.data());
+      glUniform1i(shader_.textureLightenabledLoc[i], light_enabled_[i] ? 1 : 0);
+    }
+
+  };
+
+  void updateMaterialTexture(GLMaterial& mtl) {
+    glUseProgram(shader_.textureShaderProgram);
+    glUniform3fv(shader_.textureAmbientcolorLoc, 1, mtl.ambient3().data());
+    glUniform3fv(shader_.textureDiffusecolorLoc, 1, mtl.diffuse3().data());
+    glUniform3fv(shader_.textureEmissioncolorLoc, 1, mtl.emission3().data());
+    glUniform3fv(shader_.textureSpecularcolorLoc, 1, mtl.specular3().data());
+    glUniform1f(shader_.textureShininessLoc, mtl.shininess());
+    glUniform1i(shader_.textureMapLoc, 0);
   };
 
   float& fov() { return projection_.fov; };
@@ -904,7 +984,16 @@ class GLPanel {
   void initTexture() {
     if (texture_system_.num_units) return;
 
-    ::glGetIntegerv(GL_MAX_TEXTURE_UNITS, &texture_system_.num_units);
+    GLint max_units = 0;
+    ::glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_units);
+    if (max_units <= 0) {
+      ::glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &max_units);
+    }
+    if (max_units <= 0) {
+      ::glGetIntegerv(GL_MAX_TEXTURE_UNITS, &max_units);
+    }
+    if (max_units <= 0) max_units = 16;
+    texture_system_.num_units = max_units;
     std::cout << "maximum texture units: " << texture_system_.num_units
               << std::endl;
     ::glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texture_system_.max_tex_size);
@@ -951,24 +1040,23 @@ class GLPanel {
 
     int i = texture_system_.current_tex_id;
     ::glBindTexture(GL_TEXTURE_2D, texture_system_.tex_objects[i]);
+    ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    // Set texture parameters
-    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                      GL_NEAREST_MIPMAP_NEAREST);
-    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-    // Load texture data
+    // Load texture data (sized internal formats for core profile)
     if (channel == 3) {
-      ::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB,
+      ::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, w, h, 0, GL_RGB,
                      GL_UNSIGNED_BYTE, image.data());
     } else if (channel == 4) {
-      ::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+      ::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, image.data());
     }
 
     checkOpenGLError("Loading texture data");
+
+    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
     // Generate mipmaps
     ::glGenerateMipmap(GL_TEXTURE_2D);
