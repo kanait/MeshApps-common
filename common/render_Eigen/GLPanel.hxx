@@ -747,6 +747,15 @@ class GLPanel {
       glUniform1i(shader_.textureLightenabledLoc[i], light_enabled_[i] ? 1 : 0);
     }
 
+    glUseProgram(shader_.lines3dShaderProgram);
+    glUniformMatrix4fv(shader_.lines3dProjectionLoc, 1, GL_FALSE, proj.data());
+    glUniformMatrix4fv(shader_.lines3dModelViewLoc, 1, GL_FALSE, mv.data());
+    const float w = static_cast<float>(viewport_.width);
+    const float h = static_cast<float>(viewport_.height);
+    glUniform2f(shader_.lines3dViewportSizeLoc, w, h);
+    glUniform1f(shader_.lines3dLineWidthLoc, 1.0f);
+    glUniform1f(shader_.lines3dAspectLoc, w / h);
+    glUniform3f(shader_.lines3dLineColorLoc, 0.2f, 0.8f, 0.2f);
   };
 
   void updateMaterialTexture(GLMaterial& mtl) {

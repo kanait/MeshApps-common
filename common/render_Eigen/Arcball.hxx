@@ -90,6 +90,14 @@ class Arcball {
   void qDown(const Eigen::Quaternionf& q) { qDown_ = q; }
   void mDown(const Eigen::Matrix4f& m) { mDown_ = m; }
 
+  void restoreState(const Eigen::Quaternionf& q, const Eigen::Matrix4f& m,
+                    const Eigen::Vector3f& offset, float seezo) {
+    qNow_ = qDown_ = q;
+    mNow_ = mDown_ = m;
+    offset_ = offset;
+    seezo_ = seezo;
+  }
+
   const Eigen::Quaternionf& center() const { return center_; }
   const Eigen::Quaternionf& qNow() const { return qNow_; }
   const Eigen::Quaternionf& qDown() const { return qDown_; }

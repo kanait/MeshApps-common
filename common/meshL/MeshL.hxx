@@ -1,6 +1,6 @@
 ﻿////////////////////////////////////////////////////////////////////
 //
-// $Id: MeshL.hxx 2026/05/05 14:10:40 kanai Exp 
+// $Id: MeshL.hxx 2026/05/23 17:57:45 kanai Exp 
 //
 // Copyright (c) 2021-2025 Takashi Kanai
 // Released under the MIT license
@@ -13,8 +13,10 @@
 #include "envDep.h"
 
 #include <list>
-#include <vector>
+#include <map>
 #include <memory>
+#include <set>
+#include <vector>
 //using namespace std;
 
 #include "myEigen.hxx"
@@ -30,6 +32,81 @@
 #include "BLoopL.hxx"
 #include "VertexLCirculator.hxx"
 #include "MeshUtiL.hxx"
+
+namespace meshl_detail {
+
+inline bool buildBoundaryAdjacency(
+    const std::list<std::shared_ptr<HalfedgeL>>& halfedges,
+    std::map<std::shared_ptr<VertexL>, std::vector<std::shared_ptr<VertexL>>>&
+        adjacency) {
+  adjacency.clear();
+  for (const auto& he : halfedges) {
+    if (!he->isBoundary()) continue;
+    const auto a = he->vertex();
+    const auto b = he->next()->vertex();
+    adjacency[a].push_back(b);
+    adjacency[b].push_back(a);
+  }
+  return !adjacency.empty();
+}
+
+// Walk one boundary connected component containing start (counter-clockwise
+// order depends on halfedge orientation; order is consistent along the loop).
+inline bool collectOrderedBoundaryLoop(
+    const std::map<std::shared_ptr<VertexL>,
+                   std::vector<std::shared_ptr<VertexL>>>& adjacency,
+    std::shared_ptr<VertexL> start,
+    std::vector<std::shared_ptr<VertexL>>& loop_vertices) {
+  loop_vertices.clear();
+  if (start == nullptr) return false;
+  const auto start_it = adjacency.find(start);
+  if (start_it == adjacency.end()) return false;
+
+  std::shared_ptr<VertexL> prev = nullptr;
+  std::shared_ptr<VertexL> cur = start;
+  do {
+    loop_vertices.push_back(cur);
+    const auto it = adjacency.find(cur);
+    if (it == adjacency.end()) return false;
+
+    std::shared_ptr<VertexL> next = nullptr;
+    for (const auto& nb : it->second) {
+      if (nb != prev) {
+        next = nb;
+        break;
+      }
+    }
+    if (next == nullptr) return false;
+
+    prev = cur;
+    cur = next;
+  } while (cur != start);
+
+  return loop_vertices.size() >= 3;
+}
+
+inline int boundaryComponentSize(
+    const std::map<std::shared_ptr<VertexL>,
+                   std::vector<std::shared_ptr<VertexL>>>& adjacency,
+    std::shared_ptr<VertexL> start) {
+  if (start == nullptr || adjacency.find(start) == adjacency.end()) return 0;
+
+  std::set<std::shared_ptr<VertexL>> visited;
+  std::vector<std::shared_ptr<VertexL>> stack = {start};
+  while (!stack.empty()) {
+    const auto cur = stack.back();
+    stack.pop_back();
+    if (!visited.insert(cur).second) continue;
+    const auto it = adjacency.find(cur);
+    if (it == adjacency.end()) continue;
+    for (const auto& nb : it->second) {
+      if (!visited.count(nb)) stack.push_back(nb);
+    }
+  }
+  return static_cast<int>(visited.size());
+}
+
+}  // namespace meshl_detail
 
 class MeshL {
 
@@ -725,43 +802,40 @@ class MeshL {
   // create boundary loop
   // sv: starting vertex
   void createBLoop(std::shared_ptr<VertexL> sv) {
-    // needs connectivity
     createConnectivity(true);
 
     if (isBoundary(sv) == false) return;
 
     if (!(emptyBLoop())) deleteAllBLoops();
 
+    std::map<std::shared_ptr<VertexL>, std::vector<std::shared_ptr<VertexL>>>
+        adjacency;
+    if (!meshl_detail::buildBoundaryAdjacency(halfedges_, adjacency)) return;
+
+    std::vector<std::shared_ptr<VertexL>> loop_vertices;
+    if (!meshl_detail::collectOrderedBoundaryLoop(adjacency, sv, loop_vertices)) {
+      std::cerr << "createBLoop: failed to walk boundary loop from vertex "
+                << sv->id() << std::endl;
+      return;
+    }
+
+    const int component_size =
+        meshl_detail::boundaryComponentSize(adjacency, sv);
+    if (static_cast<int>(loop_vertices.size()) != component_size) {
+      std::cerr << "createBLoop: incomplete loop (" << loop_vertices.size()
+                << " of " << component_size << " boundary vertices)."
+                << std::endl;
+      return;
+    }
+
     std::shared_ptr<BLoopL> bl = addBLoop();
-
-    std::shared_ptr<VertexL> vt = sv;    // current vertex
-    std::shared_ptr<VertexL> pv = nullptr;  // previous vertex
-    do {
-      std::cout << *vt << std::endl;
-
+    for (const auto& vt : loop_vertices) {
       bl->addVertex(vt);
-      bl->addIsCorner(false);  // default
+      bl->addIsCorner(false);
+    }
 
-      // next boundary vertex
-      VertexLCirculator vc(vt);
-      std::shared_ptr<VertexL> vv = vc.beginVertexL();
-      do {
-        vv = vc.nextVertexL();
-        if ((isBoundary(vv)) && (vv != pv)) break;
-      } while ((vv != vc.firstVertexL()) && (vv != nullptr));
-
-      pv = vt;
-      vt = vv;
-
-    } while (vt != sv);
-
-    // set first vertex to corner.
     bl->setCorner(0, true);
-
-    // optimize boundary corner
     bl->optimize(4);
-
-    std::cout << "BLoop created." << std::endl;
   }
 
   bool isVerticesSelected() {

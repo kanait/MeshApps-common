@@ -114,101 +114,51 @@ class GLMeshL : public GLMesh {
     glBindVertexArray(0);
   };
 
-  void draw(GLShader& shader) {
-    if (isDrawTexture() && has_textured_buffer_) {
-      return;
-    }
-    if ((isSmoothShading() == false) && (isDrawWireframe() == false)) {
-      // flat shading
-      // std::cout << "program " << shader.phongShaderProgram << std::endl;
-      glUseProgram(shader.phongShaderProgram);
-      glBindVertexArray(vao_flat_);
-      glDrawArrays(GL_TRIANGLES, 0, vertex_count_flat_);
-      glBindVertexArray(0);
-    } else if ((isSmoothShading() == true) && (isDrawWireframe() == false)) {
-      // smooth shading
-      glUseProgram(shader.phongShaderProgram);
+  void drawSolid(GLShader& shader) {
+    if (isDrawTexture() && has_textured_buffer_) return;
+
+    glUseProgram(shader.phongShaderProgram);
+    if (isSmoothShading()) {
       glBindVertexArray(vao_smooth_);
       glDrawArrays(GL_TRIANGLES, 0, vertex_count_smooth_);
-      glBindVertexArray(0);
-    } else if ((isSmoothShading() == false) && (isDrawWireframe() == true)) {
-      // ワイヤフレーム＋フラットシェーディング
-      glEnable(GL_DEPTH_TEST);
-      glEnable(GL_STENCIL_TEST);
-
-      // ===== パス 1: 塗りつぶし (flat shading) =====
-      glUseProgram(shader.phongShaderProgram);
-      glBindVertexArray(vao_flat_);  // flat shading 用の VAO に変更
-
-      // 深度テスト有効・深度書き込みも有効
-      glDepthMask(GL_TRUE);
-      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-      // ステンシルバッファに前面のピクセルをマーク
-      glStencilFunc(GL_ALWAYS, 1, 0xFF);
-      glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-      glStencilMask(0xFF);
-
-      // 通常の描画
-      glDrawArrays(GL_TRIANGLES, 0,
-                   vertex_count_flat_);  // flat buffer の頂点数
-
-      // ===== パス 2: ワイヤフレーム描画 =====
-      // 2パス方式：シンプルで高速
-
-      // パス 1: ソリッドメッシュ描画
-      glUseProgram(shader.phongShaderProgram);
+    } else {
       glBindVertexArray(vao_flat_);
-
-      // 後面カリング有効（背面のワイヤーフレームを減らす）
-      glEnable(GL_CULL_FACE);
-      glCullFace(GL_BACK);
-
-      // 深度テスト有効
-      glDepthMask(GL_TRUE);
-      glDepthFunc(GL_LESS);
-
-      // ソリッドメッシュ描画
       glDrawArrays(GL_TRIANGLES, 0, vertex_count_flat_);
-
-      // パス 2: ワイヤーフレーム描画
-      glUseProgram(shader.lines3dShaderProgram);
-      glUniform1f(shader.lines3dLineWidthLoc,
-                  1.2f);  // 線の太さを少し増やしてアンチエイリアシング効果向上
-      glUniform3f(shader.lines3dLineColorLoc, 0.0f, 0.0f, 0.0f);  // RGB - 黒色
-      glUniform1f(shader.lines3dDepthOffsetLoc,
-                  0.00002f);  // シェーダーベースのポリゴンオフセット
-
-      glBindVertexArray(vao_wire_);
-
-      // 深度テスト有効、深度書き込みは無効
-      glDepthMask(GL_FALSE);
-      glDepthFunc(GL_LEQUAL);
-
-      // アンチエイリアシング
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-      // マルチサンプリング有効化（利用可能な場合）
-      glEnable(GL_MULTISAMPLE);
-
-      // 線の滑らかさを向上
-      glEnable(GL_LINE_SMOOTH);
-      glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-
-      // ワイヤーフレーム描画
-      glDrawArrays(GL_LINES, 0, vertex_count_wire_);
-
-      // 後始末
-      glDisable(GL_BLEND);
-      glDisable(GL_CULL_FACE);
-      glDisable(GL_LINE_SMOOTH);
-      glDisable(GL_MULTISAMPLE);
-      glBindVertexArray(0);
-      glDepthMask(GL_TRUE);
-      glDepthFunc(GL_LESS);
     }
+    glBindVertexArray(0);
   };
+
+  void drawWireOverlay(GLShader& shader) {
+    if (vao_wire_ == 0 || vertex_count_wire_ == 0) return;
+
+    glEnable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(shader.lines3dShaderProgram);
+    glUniform1f(shader.lines3dLineWidthLoc, 1.2f);
+    glUniform3f(shader.lines3dLineColorLoc, 0.0f, 0.0f, 0.0f);
+    glUniform1f(shader.lines3dDepthOffsetLoc, 0.00002f);
+
+    glBindVertexArray(vao_wire_);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LEQUAL);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_LINE_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glDrawArrays(GL_LINES, 0, vertex_count_wire_);
+    glDisable(GL_BLEND);
+    glDisable(GL_LINE_SMOOTH);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+  };
+
+  void draw(GLShader& shader) {
+    drawSolid(shader);
+    if (isDrawWireframe()) drawWireOverlay(shader);
+  };
+
 
   GLuint vao_flat() const { return vao_flat_; };
   GLuint vertex_count_flat() const { return vertex_count_flat_; };
