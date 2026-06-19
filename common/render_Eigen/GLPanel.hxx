@@ -221,6 +221,19 @@ class GLPanel {
     shader_.lines3dLineColorLoc = glGetUniformLocation(shader_.lines3dShaderProgram, "line_color");
     shader_.lines3dDepthOffsetLoc = glGetUniformLocation(shader_.lines3dShaderProgram, "depth_offset");
 
+    // Shaders for points 3d rendering
+    shader_.points3dShaderProgram = createShaderProgram( vertex_points3d_source33,
+                                                         geometry_points3d_source33,
+                                                         fragment_points3d_source33 );
+
+    shader_.points3dModelViewLoc = glGetUniformLocation(shader_.points3dShaderProgram, "modelview");
+    shader_.points3dProjectionLoc = glGetUniformLocation(shader_.points3dShaderProgram, "projection");
+    shader_.points3dViewportSizeLoc = glGetUniformLocation(shader_.points3dShaderProgram, "viewport_size");
+    shader_.points3dPointSizeLoc = glGetUniformLocation(shader_.points3dShaderProgram, "point_size");
+    shader_.points3dAspectLoc = glGetUniformLocation(shader_.points3dShaderProgram, "aspect");
+    shader_.points3dPointColorLoc = glGetUniformLocation(shader_.points3dShaderProgram, "point_color");
+    shader_.points3dDepthOffsetLoc = glGetUniformLocation(shader_.points3dShaderProgram, "depth_offset");
+
     // Shaders for gradient background
     shader_.gradShaderProgram = createShaderProgram( gradVertShaderSrc, nullptr,
                                                      gradFragShaderSrc );
@@ -362,6 +375,9 @@ class GLPanel {
     }
     if (shader_.lines3dShaderProgram) {
       glDeleteProgram(shader_.lines3dShaderProgram);
+    }
+    if (shader_.points3dShaderProgram) {
+      glDeleteProgram(shader_.points3dShaderProgram);
     }
   };
 
@@ -687,22 +703,26 @@ class GLPanel {
                        proj.data());
     glUniformMatrix4fv(shader_.wireframemodelviewLoc, 1, GL_FALSE, mv.data());
 
+    const float w = static_cast<float>(viewport_.width);
+    const float h = static_cast<float>(viewport_.height);
+
     // lines3d
     glUseProgram(shader_.lines3dShaderProgram);
-    // 行列は Eigen を使っていると仮定（行優先なので GL_FALSE）
-    // modelview/projection は Eigen::Matrix4f
     glUniformMatrix4fv(shader_.lines3dProjectionLoc, 1, GL_FALSE, proj.data());
     glUniformMatrix4fv(shader_.lines3dModelViewLoc, 1, GL_FALSE, mv.data());
-    // viewport_size: 解像度 (width, height)
-    float w = static_cast<float>(viewport_.width);
-    float h = static_cast<float>(viewport_.height);
     glUniform2f(shader_.lines3dViewportSizeLoc, w, h);
-    // line_width: スクリーン空間での太さ（例: 2.0 ピクセル）
     glUniform1f(shader_.lines3dLineWidthLoc, 1.0f);
-    // aspect: アスペクト比（width / height）
-    glUniform1f(shader_.lines3dAspectLoc, w/h);
-    // line color
-    glUniform3f(shader_.lines3dLineColorLoc, 0.2f, 0.8f, 0.2f);  // RGB
+    glUniform1f(shader_.lines3dAspectLoc, w / h);
+    glUniform3f(shader_.lines3dLineColorLoc, 0.2f, 0.8f, 0.2f);
+
+    // points3d
+    glUseProgram(shader_.points3dShaderProgram);
+    glUniformMatrix4fv(shader_.points3dProjectionLoc, 1, GL_FALSE, proj.data());
+    glUniformMatrix4fv(shader_.points3dModelViewLoc, 1, GL_FALSE, mv.data());
+    glUniform2f(shader_.points3dViewportSizeLoc, w, h);
+    glUniform1f(shader_.points3dPointSizeLoc, 5.0f);
+    glUniform1f(shader_.points3dAspectLoc, w / h);
+    glUniform3f(shader_.points3dPointColorLoc, 1.0f, 0.0f, 0.0f);
   };
 
   void updateMaterial(GLMaterial& mtl) {
@@ -756,6 +776,14 @@ class GLPanel {
     glUniform1f(shader_.lines3dLineWidthLoc, 1.0f);
     glUniform1f(shader_.lines3dAspectLoc, w / h);
     glUniform3f(shader_.lines3dLineColorLoc, 0.2f, 0.8f, 0.2f);
+
+    glUseProgram(shader_.points3dShaderProgram);
+    glUniformMatrix4fv(shader_.points3dProjectionLoc, 1, GL_FALSE, proj.data());
+    glUniformMatrix4fv(shader_.points3dModelViewLoc, 1, GL_FALSE, mv.data());
+    glUniform2f(shader_.points3dViewportSizeLoc, w, h);
+    glUniform1f(shader_.points3dPointSizeLoc, 5.0f);
+    glUniform1f(shader_.points3dAspectLoc, w / h);
+    glUniform3f(shader_.points3dPointColorLoc, 1.0f, 0.0f, 0.0f);
   };
 
   void updateMaterialTexture(GLMaterial& mtl) {

@@ -22,6 +22,7 @@ struct GLShader {
   GLuint points2dShaderProgram=0;
   GLuint lines2dShaderProgram=0;
   GLuint lines3dShaderProgram=0;
+  GLuint points3dShaderProgram=0;
   GLuint textureShaderProgram=0;
   
   // Loc
@@ -67,6 +68,14 @@ struct GLShader {
   GLint lines3dAspectLoc = -1;
   GLint lines3dLineColorLoc = -1;
   GLint lines3dDepthOffsetLoc = -1;
+  // Loc for points 3d rendering
+  GLint points3dModelViewLoc = -1;
+  GLint points3dProjectionLoc = -1;
+  GLint points3dViewportSizeLoc = -1;
+  GLint points3dPointSizeLoc = -1;
+  GLint points3dAspectLoc = -1;
+  GLint points3dPointColorLoc = -1;
+  GLint points3dDepthOffsetLoc = -1;
 };
 
 #endif // _GLSHADER_HXX 1

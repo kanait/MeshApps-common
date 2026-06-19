@@ -245,6 +245,71 @@ static const GLchar *fragment_lines3d_source33 = R"glsl(
 )glsl";
 
 //
+// shaders for points 3d rendering
+//
+
+static const GLchar *vertex_points3d_source33 = R"glsl(
+  #version 330 core
+  layout(location = 0) in vec3 position;
+
+  void main() {
+    gl_Position = vec4(position, 1.0);
+  }
+)glsl";
+
+static const GLchar *geometry_points3d_source33 = R"glsl(
+  #version 330 core
+  layout(points) in;
+  layout(triangle_strip, max_vertices = 4) out;
+
+  uniform mat4 modelview;
+  uniform mat4 projection;
+  uniform vec2 viewport_size;
+  uniform float point_size;
+  uniform float aspect;
+
+  out float v_dist;
+
+  void main()
+  {
+    vec4 p = projection * modelview * gl_in[0].gl_Position;
+    vec2 ndc = p.xy / p.w;
+
+    float pixel_size = 2.0 / viewport_size.x;
+    vec2 point_half = vec2(point_size * 0.5 * pixel_size);
+    point_half.x *= aspect;
+
+    v_dist = point_size * 0.5;
+    gl_Position = vec4(ndc + vec2(-point_half.x, -point_half.y), p.z / p.w, 1.0); EmitVertex();
+    v_dist = -point_size * 0.5;
+    gl_Position = vec4(ndc + vec2( point_half.x, -point_half.y), p.z / p.w, 1.0); EmitVertex();
+    v_dist = point_size * 0.5;
+    gl_Position = vec4(ndc + vec2(-point_half.x,  point_half.y), p.z / p.w, 1.0); EmitVertex();
+    v_dist = -point_size * 0.5;
+    gl_Position = vec4(ndc + vec2( point_half.x,  point_half.y), p.z / p.w, 1.0); EmitVertex();
+    EndPrimitive();
+  }
+)glsl";
+
+static const GLchar *fragment_points3d_source33 = R"glsl(
+  #version 330 core
+  out vec4 fragColor;
+
+  uniform vec3 point_color;
+  uniform float point_size;
+  uniform float depth_offset;
+
+  in float v_dist;
+
+  void main() {
+    float distance_from_center = abs(v_dist) / (point_size * 0.5);
+    float alpha = 1.0 - smoothstep(0.8, 1.0, distance_from_center);
+    gl_FragDepth = gl_FragCoord.z - depth_offset;
+    fragColor = vec4(point_color, alpha);
+  }
+)glsl";
+
+//
 // shaders for points 2d rendering
 //
 
