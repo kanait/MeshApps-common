@@ -14,6 +14,7 @@
 #include "myGL.hxx"
 
 #include <memory>
+#include <vector>
 #include "Octree.hxx"
 #include "GLShader.hxx"
 
@@ -22,7 +23,8 @@ class GLOctree {
 public:
 
   GLOctree() : linesVAO_(0), linesVBO_(0), rayVAO_(0), rayVBO_(0),
-               hitVAO_(0), hitVBO_(0), has_hit_(false) {};
+               hitVAO_(0), hitVBO_(0), num_ray_vertices_(0),
+               num_hit_points_(0) {};
   ~GLOctree() {
     // deleteVAOVBO();
   };
@@ -75,24 +77,28 @@ public:
     initLines3dVAO(lines_buffer);
   };
 
-  void initRayIntersection(const Eigen::Vector3d& ray_pos,
-                           const Eigen::Vector3d& ray_dir,
-                           const Eigen::Vector3d& hit_point, bool has_hit) {
+  void initRayIntersections(
+      const std::vector<Eigen::Vector3d>& ray_segments,
+      const std::vector<Eigen::Vector3d>& hit_points) {
     std::vector<float> ray_buffer;
-    ray_buffer.push_back(static_cast<float>(ray_pos.x()));
-    ray_buffer.push_back(static_cast<float>(ray_pos.y()));
-    ray_buffer.push_back(static_cast<float>(ray_pos.z()));
-    ray_buffer.push_back(static_cast<float>(ray_pos.x() + 2.0 * ray_dir.x()));
-    ray_buffer.push_back(static_cast<float>(ray_pos.y() + 2.0 * ray_dir.y()));
-    ray_buffer.push_back(static_cast<float>(ray_pos.z() + 2.0 * ray_dir.z()));
+    ray_buffer.reserve(ray_segments.size() * 3);
+    for (const auto& p : ray_segments) {
+      ray_buffer.push_back(static_cast<float>(p.x()));
+      ray_buffer.push_back(static_cast<float>(p.y()));
+      ray_buffer.push_back(static_cast<float>(p.z()));
+    }
+    num_ray_vertices_ = static_cast<GLuint>(ray_segments.size());
     initRayVAO(ray_buffer);
 
-    has_hit_ = has_hit;
-    if (has_hit_) {
+    num_hit_points_ = static_cast<GLuint>(hit_points.size());
+    if (num_hit_points_ > 0) {
       std::vector<float> hit_buffer;
-      hit_buffer.push_back(static_cast<float>(hit_point.x()));
-      hit_buffer.push_back(static_cast<float>(hit_point.y()));
-      hit_buffer.push_back(static_cast<float>(hit_point.z()));
+      hit_buffer.reserve(hit_points.size() * 3);
+      for (const auto& p : hit_points) {
+        hit_buffer.push_back(static_cast<float>(p.x()));
+        hit_buffer.push_back(static_cast<float>(p.y()));
+        hit_buffer.push_back(static_cast<float>(p.z()));
+      }
       initHitVAO(hit_buffer);
     }
   };
@@ -140,20 +146,20 @@ public:
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(shader().lines3dShaderProgram);
-    glUniform1f(shader().lines3dLineWidthLoc, 2.0f);
+    glUniform1f(shader().lines3dLineWidthLoc, 1.0f);
     glUniform3f(shader().lines3dLineColorLoc, 0.0f, 0.0f, 0.0f);
     glUniform1f(shader().lines3dDepthOffsetLoc, 0.0f);
     glBindVertexArray(rayVAO_);
-    glDrawArrays(GL_LINES, 0, 2);
+    glDrawArrays(GL_LINES, 0, num_ray_vertices_);
     glBindVertexArray(0);
 
-    if (has_hit_) {
+    if (num_hit_points_ > 0) {
       glUseProgram(shader().points3dShaderProgram);
-      glUniform1f(shader().points3dPointSizeLoc, 8.0f);
+      glUniform1f(shader().points3dPointSizeLoc, 4.0f);
       glUniform3f(shader().points3dPointColorLoc, 1.0f, 0.0f, 0.0f);
       glUniform1f(shader().points3dDepthOffsetLoc, 0.0f);
       glBindVertexArray(hitVAO_);
-      glDrawArrays(GL_POINTS, 0, 1);
+      glDrawArrays(GL_POINTS, 0, num_hit_points_);
       glBindVertexArray(0);
     }
 
@@ -316,7 +322,8 @@ private:
   GLuint rayVBO_;
   GLuint hitVAO_;
   GLuint hitVBO_;
-  bool has_hit_;
+  GLuint num_ray_vertices_;
+  GLuint num_hit_points_;
 };
 
 #endif  // _GLOCTREE_HXX
