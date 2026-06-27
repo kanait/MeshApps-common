@@ -146,7 +146,7 @@ public:
 
     ::glBegin( GL_POINTS );
     for ( int i = 0; i < idx.size() ; ++i ) {
-      Eigen::Vector<double,N>& p = kdtree().points()[idx[i]];
+      const Eigen::Vector<double,N>& p = kdtree().points()[idx[i]];
       ::glVertex2f( p[0], p[1] );
     }
     ::glEnd();
@@ -173,7 +173,7 @@ public:
     bbMax[0] = width_;
     bbMax[1] = height_;
 
-    auto points = kdtree().points();
+    const auto& points = kdtree().points();
     return linesToBuffer( lines_buffer, points,
                           kdtree().root(), 0, points.size()-1, 0, bbMin, bbMax );
 
@@ -181,7 +181,7 @@ public:
 
   int linesToBuffer(
     std::vector<float>& lines_buffer,
-    std::vector<Eigen::Vector<double,N> >& points,
+    const std::vector<Eigen::Vector<double,N> >& points,
     KdNode* node, int left, int right, int splitDimension,
     float bbMin[], float bbMax[]) {
     if (node == nullptr) return 0;
@@ -190,7 +190,7 @@ public:
     int mid = (left + right) >> 1;
 
     // Calculate this node's bounding box:
-    Eigen::Vector<double, N>& p = points[node->idx()];
+    const Eigen::Vector<double, N>& p = points[node->idx()];
 
     int num_lines = 0;
     if (splitDimension == 1) {  // x
