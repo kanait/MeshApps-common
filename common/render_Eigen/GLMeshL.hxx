@@ -167,6 +167,40 @@ class GLMeshL : public GLMesh {
   GLuint vao_wire() const { return vao_wire_; };
   GLuint vertex_count_wire() const { return vertex_count_wire_; };
 
+  // Update GPU buffers after deforming mesh topology/vertex positions in place.
+  void updateBuffersFromMesh() {
+    if (!meshl_) return;
+    if (vao_smooth_ == 0) {
+      buildBuffers();
+      return;
+    }
+
+    meshl_->calcSmoothVertexNormal();
+
+    auto smooth_buffer =
+        generateSmoothShadingVertexBuffer<VertexAttribColor>(*meshl_);
+    vertex_count_smooth_ = smooth_buffer.size();
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_smooth_);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribColor) * smooth_buffer.size(),
+                 smooth_buffer.data(), GL_DYNAMIC_DRAW);
+
+    auto flat_buffer =
+        generateFlatShadingVertexBuffer<VertexAttribBasic>(*meshl_);
+    vertex_count_flat_ = flat_buffer.size();
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_flat_);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribBasic) * flat_buffer.size(),
+                 flat_buffer.data(), GL_DYNAMIC_DRAW);
+
+    if (isDrawWireframe() && vao_wire_ != 0) {
+      auto wire_buffer = generateWireframeVertexBuffer(*meshl_);
+      glBindBuffer(GL_ARRAY_BUFFER, vbo_wire_);
+      glBufferData(GL_ARRAY_BUFFER, wire_buffer.size() * sizeof(float),
+                   wire_buffer.data(), GL_DYNAMIC_DRAW);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  };
+
   void buildBuffers() {
     // === Flat Shading ===
     auto flat_buffer =
