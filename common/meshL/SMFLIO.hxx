@@ -74,6 +74,11 @@ class SMFLIO : public LIO {
         Eigen::Vector3d p(x, y, z);
 
         std::shared_ptr<VertexL> vt = mesh().addVertex(p);
+        double r, g, b;
+        if (isstr >> r) {
+          isstr >> g >> b;
+          vt->setColor(r, g, b);
+        }
         vertex_p.push_back(vt);
 
         ++v_count;

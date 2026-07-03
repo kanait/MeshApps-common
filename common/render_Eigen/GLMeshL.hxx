@@ -101,6 +101,13 @@ class GLMeshL : public GLMesh {
   void setTexID(unsigned int id) { tex_id_ = id; };
   unsigned int texID() const { return tex_id_; };
   bool hasTexturedBuffer() const { return has_textured_buffer_; };
+  bool meshHasVertexColors() const {
+    if (!meshl_) return false;
+    for (const auto& vt : meshl_->vertices()) {
+      if (vt->hasColor()) return true;
+    }
+    return false;
+  };
 
   void drawTextured(GLShader& shader) {
     if (!has_textured_buffer_ || tex_id_ == 0) return;
@@ -111,6 +118,20 @@ class GLMeshL : public GLMesh {
     glBindVertexArray(vao_texture_);
     glDrawArrays(GL_TRIANGLES, 0, vertex_count_texture_);
     glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(0);
+  };
+
+  void drawVertexColor(GLShader& shader) {
+    if (!meshHasVertexColors()) return;
+
+    glUseProgram(shader.wireframeShaderProgram);
+    if (isSmoothShading()) {
+      glBindVertexArray(vao_smooth_);
+      glDrawArrays(GL_TRIANGLES, 0, vertex_count_smooth_);
+    } else {
+      glBindVertexArray(vao_flat_);
+      glDrawArrays(GL_TRIANGLES, 0, vertex_count_flat_);
+    }
     glBindVertexArray(0);
   };
 
@@ -155,7 +176,11 @@ class GLMeshL : public GLMesh {
   };
 
   void draw(GLShader& shader) {
-    drawSolid(shader);
+    if (isDrawColor() && meshHasVertexColors()) {
+      drawVertexColor(shader);
+    } else {
+      drawSolid(shader);
+    }
     if (isDrawWireframe()) drawWireOverlay(shader);
   };
 
@@ -176,6 +201,7 @@ class GLMeshL : public GLMesh {
     }
 
     meshl_->calcSmoothVertexNormal();
+    has_vertex_colors_ = meshHasVertexColors();
 
     auto smooth_buffer =
         generateSmoothShadingVertexBuffer<VertexAttribColor>(*meshl_);
@@ -184,12 +210,21 @@ class GLMeshL : public GLMesh {
     glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribColor) * smooth_buffer.size(),
                  smooth_buffer.data(), GL_DYNAMIC_DRAW);
 
-    auto flat_buffer =
-        generateFlatShadingVertexBuffer<VertexAttribBasic>(*meshl_);
-    vertex_count_flat_ = flat_buffer.size();
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_flat_);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribBasic) * flat_buffer.size(),
-                 flat_buffer.data(), GL_DYNAMIC_DRAW);
+    if (has_vertex_colors_) {
+      auto flat_buffer =
+          generateFlatShadingVertexBuffer<VertexAttribColor>(*meshl_);
+      vertex_count_flat_ = flat_buffer.size();
+      glBindBuffer(GL_ARRAY_BUFFER, vbo_flat_);
+      glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribColor) * flat_buffer.size(),
+                   flat_buffer.data(), GL_DYNAMIC_DRAW);
+    } else {
+      auto flat_buffer =
+          generateFlatShadingVertexBuffer<VertexAttribBasic>(*meshl_);
+      vertex_count_flat_ = flat_buffer.size();
+      glBindBuffer(GL_ARRAY_BUFFER, vbo_flat_);
+      glBufferData(GL_ARRAY_BUFFER, sizeof(VertexAttribBasic) * flat_buffer.size(),
+                   flat_buffer.data(), GL_DYNAMIC_DRAW);
+    }
 
     if (isDrawWireframe() && vao_wire_ != 0) {
       auto wire_buffer = generateWireframeVertexBuffer(*meshl_);
@@ -202,14 +237,25 @@ class GLMeshL : public GLMesh {
   };
 
   void buildBuffers() {
-    // === Flat Shading ===
-    auto flat_buffer =
-        generateFlatShadingVertexBuffer<VertexAttribBasic>(*meshl_);
-    vertex_count_flat_ = flat_buffer.size();
+    has_vertex_colors_ = meshHasVertexColors();
 
-    setupVAO<VertexAttribBasic>(vao_flat_, vbo_flat_, flat_buffer,
-                                {{0, offsetof(VertexAttribBasic, position)},
-                                 {1, offsetof(VertexAttribBasic, normal)}});
+    // === Flat Shading ===
+    if (has_vertex_colors_) {
+      auto flat_buffer =
+          generateFlatShadingVertexBuffer<VertexAttribColor>(*meshl_);
+      vertex_count_flat_ = flat_buffer.size();
+      setupVAO<VertexAttribColor>(vao_flat_, vbo_flat_, flat_buffer,
+                                  {{0, offsetof(VertexAttribColor, position)},
+                                   {1, offsetof(VertexAttribColor, normal)},
+                                   {2, offsetof(VertexAttribColor, color)}});
+    } else {
+      auto flat_buffer =
+          generateFlatShadingVertexBuffer<VertexAttribBasic>(*meshl_);
+      vertex_count_flat_ = flat_buffer.size();
+      setupVAO<VertexAttribBasic>(vao_flat_, vbo_flat_, flat_buffer,
+                                  {{0, offsetof(VertexAttribBasic, position)},
+                                   {1, offsetof(VertexAttribBasic, normal)}});
+    }
 
     // === Smooth Shading ===
     auto smooth_buffer =
@@ -288,8 +334,15 @@ class GLMeshL : public GLMesh {
 
   unsigned int tex_id_;
   bool has_textured_buffer_;
+  bool has_vertex_colors_ = false;
 
   GLMaterial mtln_;
+
+  static Eigen::Vector3f vertexColorOf(
+      const std::shared_ptr<VertexL>& vtx) {
+    if (vtx->hasColor()) return vtx->color().cast<float>();
+    return Eigen::Vector3f(0.8f, 0.8f, 0.8f);
+  }
 
   std::vector<float> generateWireframeVertexBuffer(MeshL& mesh) {
     std::vector<float> buffer;
@@ -487,10 +540,12 @@ class GLMeshL : public GLMesh {
             buffer.push_back({p2, n});
           } else if constexpr (std::is_same_v<VertexAttribT,
                                               VertexAttribColor>) {
-            Eigen::Vector3f color(0.0f, 0.0f, 0.0f);  // 固定色
-            buffer.push_back({p0, n, color});
-            buffer.push_back({p1, n, color});
-            buffer.push_back({p2, n, color});
+            Eigen::Vector3f c0 = vertexColorOf(h0->vertex());
+            Eigen::Vector3f c1 = vertexColorOf(h1->vertex());
+            Eigen::Vector3f c2 = vertexColorOf(h2->vertex());
+            buffer.push_back({p0, n, c0});
+            buffer.push_back({p1, n, c1});
+            buffer.push_back({p2, n, c2});
           }
         }
       }
@@ -527,25 +582,27 @@ class GLMeshL : public GLMesh {
                      : Eigen::Vector3f::Zero()});
           } else if constexpr (std::is_same_v<VertexAttribT,
                                               VertexAttribColor>) {
-            Eigen::Vector3f color(0.0f, 0.0f, 0.0f);  // 固定色
+            Eigen::Vector3f c0 = vertexColorOf(h0->vertex());
+            Eigen::Vector3f c1 = vertexColorOf(h1->vertex());
+            Eigen::Vector3f c2 = vertexColorOf(h2->vertex());
             buffer.push_back(
                 {h0->vertex()->point().cast<float>(),
                  h0->normal()
                      ? Eigen::Vector3f(h0->normal()->point().cast<float>())
                      : Eigen::Vector3f::Zero(),
-                 color});
+                 c0});
             buffer.push_back(
                 {h1->vertex()->point().cast<float>(),
                  h1->normal()
                      ? Eigen::Vector3f(h1->normal()->point().cast<float>())
                      : Eigen::Vector3f::Zero(),
-                 color});
+                 c1});
             buffer.push_back(
                 {h2->vertex()->point().cast<float>(),
                  h2->normal()
                      ? Eigen::Vector3f(h2->normal()->point().cast<float>())
                      : Eigen::Vector3f::Zero(),
-                 color});
+                 c2});
           }
         }
       }

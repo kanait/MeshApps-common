@@ -262,12 +262,33 @@ public:
   // 複数入っている場合は，pos に一番近い点を出力する
   std::shared_ptr<FaceL> intersectRayFaces( Eigen::Vector3d& pos, Eigen::Vector3d& dir,
                             Eigen::Vector3d& near_p ) {
+    double near_t = 0.0;
+    return intersectRayFaces(pos, dir, near_p, &near_t, 0.0, -1);
+  };
+
+  // min_t より手前のヒットを無視し，skip_vertex を含む面も無視する（AO 用）
+  std::shared_ptr<FaceL> intersectRayFaces( Eigen::Vector3d& pos, Eigen::Vector3d& dir,
+                            Eigen::Vector3d& near_p, double* near_t,
+                            double min_t, int skip_vertex ) {
 
     std::shared_ptr<FaceL> near_fc = nullptr;
+    double best_t = std::numeric_limits<double>::max();
+
     for (int i = 0; i < flist_.size(); ++i ) {
       std::shared_ptr<FaceL> fc = flist_[i];
-      if (!fc) continue; // 安全チェック
-      
+      if (!fc) continue;
+
+      if (skip_vertex >= 0) {
+        bool incident = false;
+        for (auto& he : fc->halfedges()) {
+          if (he->vertex()->id() == skip_vertex) {
+            incident = true;
+            break;
+          }
+        }
+        if (incident) continue;
+      }
+
       double orig[3], ddir[3], vert0[3], vert1[3], vert2[3];
       orig[0] = pos.x(); orig[1] = pos.y(); orig[2] = pos.z();
       ddir[0] = dir.x(); ddir[1] = dir.y(); ddir[2] = dir.z();
@@ -295,17 +316,20 @@ public:
       double t,u,v;
       if ( intersect_triangle2(orig, ddir, vert0, vert1, vert2,
                                &t, &u, &v) ) {
+        if (t <= min_t) continue;
+
         Eigen::Vector3d p = (1.0-u-v) * p0 + u * p1 + v * p2;
-        if ( near_fc != nullptr ) {
-          if ( (pos - near_p).norm() > (pos - p).norm() ) {
-            near_fc = fc;
-            near_p = p;
-          }
-        } else {
+        if ( near_fc == nullptr || t < best_t ) {
+          best_t = t;
           near_fc = fc;
           near_p = p;
         }
       }
+    }
+
+    if (near_t != nullptr) {
+      *near_t = (near_fc != nullptr) ? best_t
+                                     : std::numeric_limits<double>::max();
     }
 
     return near_fc;

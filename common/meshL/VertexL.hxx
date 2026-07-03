@@ -41,6 +41,15 @@ public:
     point_ << x, y, z;
   };
 
+  // color (optional per-vertex RGB, e.g. baked AO)
+  bool hasColor() const { return has_color_; };
+  const Eigen::Vector3d& color() const { return color_; };
+  void setColor( const Eigen::Vector3d& c ) { color_ = c; has_color_ = true; };
+  void setColor( double r, double g, double b ) {
+    color_ << r, g, b;
+    has_color_ = true;
+  };
+
   // iter
   void setIter( std::list<std::shared_ptr<VertexL> >::iterator iter ) { iter_ = iter; };
   std::list<std::shared_ptr<VertexL> >::iterator iter() const { return iter_; };
@@ -55,6 +64,9 @@ private:
 
   // 3D coord
   Eigen::Vector3d point_;
+
+  bool has_color_ = false;
+  Eigen::Vector3d color_ = Eigen::Vector3d::Zero();
 
   // one of halfedges
   std::shared_ptr<HalfedgeL> halfedge_;
