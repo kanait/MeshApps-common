@@ -641,6 +641,29 @@ class GLPanel {
     return projection;
   };
 
+  void buildPickRay(int mouse_x, int mouse_y, int viewport_w, int viewport_h,
+                    Eigen::Vector3f& origin, Eigen::Vector3f& direction) {
+    const float w = static_cast<float>(std::max(1, viewport_w));
+    const float h = static_cast<float>(std::max(1, viewport_h));
+    const float ndc_x = 2.0f * static_cast<float>(mouse_x) / w - 1.0f;
+    const float ndc_y = 1.0f - 2.0f * static_cast<float>(mouse_y) / h;
+
+    const Eigen::Matrix4f proj = createProjectionMatrix(
+        projection_.fov, viewport_.aspect, projection_.near_plane,
+        projection_.far_plane);
+    const Eigen::Matrix4f mv = createModelViewMatrixArcball(
+        view_params_.view_point, view_params_.look_point, manip_.mNow(),
+        manip_.offset(), manip_.seezo());
+
+    const Eigen::Matrix4f inv = (proj * mv).inverse();
+    Eigen::Vector4f p0 = inv * Eigen::Vector4f(ndc_x, ndc_y, -1.0f, 1.0f);
+    Eigen::Vector4f p1 = inv * Eigen::Vector4f(ndc_x, ndc_y, 1.0f, 1.0f);
+    p0 /= std::max(1.0e-20f, p0.w());
+    p1 /= std::max(1.0e-20f, p1.w());
+    origin = p0.head<3>();
+    direction = (p1.head<3>() - origin).normalized();
+  };
+
   void update(GLMaterial& mtl) {
     updateProjViewLight();
     updateMaterial(mtl);
