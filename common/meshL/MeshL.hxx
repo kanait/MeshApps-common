@@ -435,6 +435,11 @@ class MeshL {
   bool isNormalized() const { return isNormalized_; };
   void setIsNormalized(bool f) { isNormalized_ = f; };
 
+  static void setConnectivityWarnings(bool enabled) {
+    connectivity_warnings_ = enabled;
+  }
+  static bool connectivityWarnings() { return connectivity_warnings_; }
+
   // create
   void createConnectivity(bool isDeleteEdges=true) {
     // already defined
@@ -462,10 +467,12 @@ class MeshL {
           edge_list[ed->ev()->id()].push_back(ed);
         } else {
           if (ed->rhe() != nullptr) {
-            std::cerr << "Warning: More than three halfedges. Edge No."
-                      << ed->id() << std::endl;
-            std::cerr << "fc " << fc->id() << " he " << he->id()
-                      << std::endl;
+            if (connectivity_warnings_) {
+              std::cerr << "Warning: More than three halfedges. Edge No."
+                        << ed->id() << std::endl;
+              std::cerr << "fc " << fc->id() << " he " << he->id()
+                        << std::endl;
+            }
           }
 
           // assign right halfedge
@@ -474,8 +481,10 @@ class MeshL {
             lhe->setMate(he);
             he->setMate(lhe);
           } else {
-            std::cerr << "Warning: invalid halfedge pair. Edge No." << ed->id()
-                      << std::endl;
+            if (connectivity_warnings_) {
+              std::cerr << "Warning: invalid halfedge pair. Edge No." << ed->id()
+                        << std::endl;
+            }
           }
 
           if (ed->rhe_valid(he)) {
@@ -1125,6 +1134,7 @@ private:
   // texture
   unsigned int texID_;
 
+  static inline bool connectivity_warnings_ = true;
 };
 
 #endif  // _MESHL_HXX

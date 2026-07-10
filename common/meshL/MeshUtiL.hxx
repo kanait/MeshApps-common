@@ -11,8 +11,12 @@
 #define _MESHUTIL_HXX 1
 
 #include "envDep.h"
+#include <list>
 #include <memory>
+#include <set>
+#include <vector>
 
+#include "HalfedgeL.hxx"
 #include "VertexL.hxx"
 #include "VertexLCirculator.hxx"
 
@@ -109,6 +113,55 @@ inline void printNeighborVertices(std::shared_ptr<VertexL> ovt) {
     vt = vc.nextVertexL();
   } while ( (vt != vc.firstVertexL()) && (vt != nullptr) );
   std::cout << std::endl;
+}
+
+// Next boundary halfedge when walking counter-clockwise around a chart / mesh hole.
+inline std::shared_ptr<HalfedgeL> nextBoundaryHalfedge(
+    std::shared_ptr<HalfedgeL> he) {
+  if (!he || !he->isBoundary()) return nullptr;
+  auto cur = he->next();
+  const int guard_limit = 64;
+  for (int guard = 0; guard < guard_limit; ++guard) {
+    if (!cur) return nullptr;
+    if (cur->isBoundary()) return cur;
+    auto mate = cur->mate();
+    if (!mate) return nullptr;
+    cur = mate->next();
+  }
+  return nullptr;
+}
+
+// Collect the longest boundary loop (vertex order) from mesh halfedges.
+inline bool collectLongestBoundaryLoop(
+    const std::list<std::shared_ptr<HalfedgeL>>& halfedges,
+    std::vector<std::shared_ptr<VertexL>>& loop_vertices) {
+  loop_vertices.clear();
+  std::set<std::shared_ptr<HalfedgeL>> visited_he;
+  std::vector<std::shared_ptr<VertexL>> best;
+
+  for (const auto& he : halfedges) {
+    if (!he || !he->isBoundary()) continue;
+    if (visited_he.count(he)) continue;
+
+    std::vector<std::shared_ptr<VertexL>> loop;
+    auto start = he;
+    auto cur = he;
+    const int guard_limit =
+        static_cast<int>(halfedges.size()) + static_cast<int>(halfedges.size()) + 8;
+    for (int guard = 0; guard < guard_limit; ++guard) {
+      if (!cur || !cur->isBoundary()) break;
+      if (visited_he.count(cur)) break;
+      visited_he.insert(cur);
+      loop.push_back(cur->vertex());
+      cur = nextBoundaryHalfedge(cur);
+      if (cur == start) break;
+    }
+    if (loop.size() > best.size()) best = std::move(loop);
+  }
+
+  if (best.size() < 3) return false;
+  loop_vertices = std::move(best);
+  return true;
 }
 
 #endif // _MESHUTIL_HXX

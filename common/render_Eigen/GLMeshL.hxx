@@ -47,7 +47,8 @@ struct AttribDesc {
 
 class GLMeshL : public GLMesh {
  public:
-  GLMeshL() : meshl_(nullptr), tex_id_(0), has_textured_buffer_(false) {};
+  GLMeshL()
+      : meshl_(nullptr), tex_id_(0), has_textured_buffer_(false) {};
   // Globals are destroyed after glfwTerminate(); do not call OpenGL here.
   ~GLMeshL() { resetVAOVBOHandles(); };
 
