@@ -41,7 +41,8 @@
 //#ifdef _WINDOWS
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(_WIN64) || defined(_WINDOWS)
 #define _USE_MATH_DEFINES
-#define M_PI     3.14159265358979323846
+#define M_PI    3.14159265358979323846
+#define M_PI_2	1.57079632679489661923
 /*  #if !defined(__MINGW32__) */
 /*  #define M_SQRT3		1.732051	// sqrt(3) */
 /*  #endif */

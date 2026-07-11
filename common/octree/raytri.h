@@ -1,6 +1,8 @@
 ﻿#ifndef _RAYTRI_H
 #define _RAYTRI_H 1
 
+// Deprecated: use RayTri.hxx (RayTriangleIntersection) instead of linking raytri.c.
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <set>
 #include <string>
 
 #include "ArapParam.hxx"
@@ -53,6 +54,13 @@ inline const char* methodName(Method method) {
       return "symdirichlet";
   }
   return "lscm";
+}
+
+// Chart building/merging uses a fast method; Symmetric Dirichlet is applied only
+// on the final per-chart UV (see partuv::refineChartsParameterization).
+inline Method chartStructureMethod(Method user) {
+  if (user == Method::SymDirichlet) return Method::ARAP;
+  return user;
 }
 
 inline bool meshFromEigen(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F,
@@ -141,6 +149,86 @@ inline bool parameterize(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F,
     meshcut::collapseUvAlongCut(UVw, vtx_orig, orig_n, UV);
   }
   return true;
+}
+
+// Relax symmetric Dirichlet energy from an existing UV (e.g. ARAP). When
+// pin_boundary is true, chart boundary vertices stay fixed (better edges).
+inline bool relaxSymmetricDirichlet(Eigen::MatrixXd& UV, const Eigen::MatrixXd& V,
+                                    const Eigen::MatrixXi& F,
+                                    bool pin_boundary = true,
+                                    int max_iterations = 60) {
+  if (UV.rows() != V.rows() || F.rows() == 0) return false;
+
+  double signed_area = 0.0;
+  for (int fi = 0; fi < F.rows(); ++fi) {
+    const int i0 = F(fi, 0);
+    const int i1 = F(fi, 1);
+    const int i2 = F(fi, 2);
+    signed_area += symdirichlet::cross2(UV.row(i1) - UV.row(i0),
+                                        UV.row(i2) - UV.row(i0));
+  }
+  if (signed_area < 0.0) UV.col(1) *= -1.0;
+
+  std::set<int> fixed;
+  if (pin_boundary) fixed = symdirichlet::boundaryVertexIndices(F);
+  if (fixed.empty() && UV.rows() > 0) fixed.insert(0);
+
+  const double surface_area = symdirichlet::meshSurfaceArea(V, F);
+  double edge_sum = 0.0;
+  int edge_count = 0;
+  for (int f = 0; f < F.rows(); ++f) {
+    for (int e = 0; e < 3; ++e) {
+      const int a = F(f, e);
+      const int b = F(f, (e + 1) % 3);
+      edge_sum += (V.row(a) - V.row(b)).norm();
+      ++edge_count;
+    }
+  }
+  const double avg_edge_length = edge_count > 0 ? edge_sum / edge_count : 1.0;
+  const double chart_scale =
+      std::max(std::sqrt(std::max(surface_area, symdirichlet::kEps)), avg_edge_length);
+
+  double energy = symdirichlet::meshEnergyAndGradient(V, F, UV, nullptr, true,
+                                                      surface_area);
+  if (!std::isfinite(energy)) return false;
+
+  max_iterations = std::max(1, max_iterations);
+  for (int iter = 0; iter < max_iterations; ++iter) {
+    std::vector<Eigen::Vector2d> grad;
+    energy = symdirichlet::meshEnergyAndGradient(V, F, UV, &grad, true, surface_area);
+    if (!std::isfinite(energy)) break;
+    for (int vi : fixed) {
+      if (vi >= 0 && vi < static_cast<int>(grad.size())) grad[vi].setZero();
+    }
+
+    double max_grad = 0.0;
+    for (int vi = 0; vi < UV.rows(); ++vi) {
+      if (fixed.count(vi) != 0) continue;
+      max_grad = std::max(max_grad, grad[vi].norm());
+    }
+    if (max_grad < 1.0e-10) return true;
+
+    const Eigen::MatrixXd old_uv = UV;
+    double step = 0.25 * chart_scale / max_grad;
+    bool accepted = false;
+    for (int ls = 0; ls < 16; ++ls) {
+      UV = old_uv;
+      for (int vi = 0; vi < UV.rows(); ++vi) {
+        if (fixed.count(vi) != 0) continue;
+        UV.row(vi) -= step * grad[vi].transpose();
+      }
+      const double trial = symdirichlet::meshEnergyAndGradient(V, F, UV, nullptr, true,
+                                                               surface_area);
+      if (std::isfinite(trial) && trial < energy) {
+        energy = trial;
+        accepted = true;
+        break;
+      }
+      step *= 0.5;
+    }
+    if (!accepted) break;
+  }
+  return std::isfinite(energy);
 }
 
 }  // namespace meshparam

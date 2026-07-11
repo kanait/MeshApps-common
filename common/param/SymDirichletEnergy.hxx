@@ -14,6 +14,9 @@
 
 #include <cmath>
 #include <limits>
+#include <map>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "myEigen.hxx"
@@ -130,6 +133,26 @@ inline double meshEnergyAndGradient(const Eigen::MatrixXd& V, const Eigen::Matri
     }
   }
   return energy;
+}
+
+inline std::set<int> boundaryVertexIndices(const Eigen::MatrixXi& F) {
+  std::map<std::pair<int, int>, int> edge_count;
+  for (int fi = 0; fi < F.rows(); ++fi) {
+    for (int e = 0; e < 3; ++e) {
+      int a = F(fi, e);
+      int b = F(fi, (e + 1) % 3);
+      if (a > b) std::swap(a, b);
+      ++edge_count[{a, b}];
+    }
+  }
+  std::set<int> boundary;
+  for (const auto& kv : edge_count) {
+    if (kv.second == 1) {
+      boundary.insert(kv.first.first);
+      boundary.insert(kv.first.second);
+    }
+  }
+  return boundary;
 }
 
 }  // namespace symdirichlet

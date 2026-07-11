@@ -21,8 +21,8 @@
 
 #define  MAX_LEVEL 5
 
-#include "tribox3.h"
-#include "raytri.h"
+#include "TriBox3.hxx"
+#include "RayTri.hxx"
 
 // Octree のノードのクラス
 class Octree : public std::enable_shared_from_this<Octree> {
@@ -182,26 +182,20 @@ public:
 
     if (!face) return false;
 
-    float boxcenter[3], boxhalfsize[3];
-    boxcenter[0] = (float) ( bbmax.x() + bbmin.x() ) / 2.0f;
-    boxcenter[1] = (float) ( bbmax.y() + bbmin.y() ) / 2.0f;
-    boxcenter[2] = (float) ( bbmax.z() + bbmin.z() ) / 2.0f;
-    boxhalfsize[0] = (float) ( bbmax.x() - bbmin.x() ) / 2.0f;
-    boxhalfsize[1] = (float) ( bbmax.y() - bbmin.y() ) / 2.0f;
-    boxhalfsize[2] = (float) ( bbmax.z() - bbmin.z() ) / 2.0f;
+    const Eigen::Vector3d box_center = (bbmax + bbmin) * 0.5;
+    const Eigen::Vector3d box_half = (bbmax - bbmin) * 0.5;
 
-    // bool isFaceInRange( Face *face, Point3d *bbmin, Point3d *bbmax ) {
-    float triverts[3][3];
+    Eigen::Vector3d v0, v1, v2;
     int i = 0;
     for (auto& he : face->halfedges()) {
-      Eigen::Vector3d& p = he->vertex()->point();
-      triverts[i][0] = (float) p.x();
-      triverts[i][1] = (float) p.y();
-      triverts[i][2] = (float) p.z();
+      const Eigen::Vector3d& p = he->vertex()->point();
+      if (i == 0) v0 = p;
+      else if (i == 1) v1 = p;
+      else v2 = p;
       ++i;
     }
 
-    return triBoxOverlap( boxcenter, boxhalfsize, triverts );
+    return TriBoxOverlap::overlap(box_center, box_half, v0, v1, v2);
   };
 
   // 直線とボックスの交差判定
@@ -289,38 +283,23 @@ public:
         if (incident) continue;
       }
 
-      double orig[3], ddir[3], vert0[3], vert1[3], vert2[3];
-      orig[0] = pos.x(); orig[1] = pos.y(); orig[2] = pos.z();
-      ddir[0] = dir.x(); ddir[1] = dir.y(); ddir[2] = dir.z();
-      int j = 0;
       Eigen::Vector3d p0, p1, p2;
+      int j = 0;
       for ( auto& he : fc->halfedges() ) {
-        if (j == 0) {
-          p0 = he->vertex()->point();
-          vert0[0] = p0.x();
-          vert0[1] = p0.y();
-          vert0[2] = p0.z();
-        } else if (j == 1) {
-          p1 = he->vertex()->point();
-          vert1[0] = p1.x();
-          vert1[1] = p1.y();
-          vert1[2] = p1.z();
-        } else if (j == 2) {
-          p2 = he->vertex()->point();
-          vert2[0] = p2.x();
-          vert2[1] = p2.y();
-          vert2[2] = p2.z();
-        }
+        if (j == 0) p0 = he->vertex()->point();
+        else if (j == 1) p1 = he->vertex()->point();
+        else if (j == 2) p2 = he->vertex()->point();
         ++j;
       }
-      double t,u,v;
-      if ( intersect_triangle2(orig, ddir, vert0, vert1, vert2,
-                               &t, &u, &v) ) {
-        if (t <= min_t) continue;
+      const RayTriangleHit hit =
+          RayTriangleIntersection::intersect(pos, dir, p0, p1, p2, 2);
+      if ( hit.hit ) {
+        if (hit.t <= min_t) continue;
 
-        Eigen::Vector3d p = (1.0-u-v) * p0 + u * p1 + v * p2;
-        if ( near_fc == nullptr || t < best_t ) {
-          best_t = t;
+        Eigen::Vector3d p =
+            RayTriangleIntersection::hitPoint(p0, p1, p2, hit.u, hit.v);
+        if ( near_fc == nullptr || hit.t < best_t ) {
+          best_t = hit.t;
           near_fc = fc;
           near_p = p;
         }
