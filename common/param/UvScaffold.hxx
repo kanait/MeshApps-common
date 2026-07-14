@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <vector>
@@ -34,18 +36,75 @@ namespace uvscaffold {
 
 inline constexpr double kEps = 1.0e-12;
 
-// In-process Triangle CDT (q: min angle ~20°, Y: no Steiner on PSLG segments).
-// Relies on triangle.cpp initializing vertex2tri to NULL after poolalloc —
-// previously uninitialized links caused SIGSEGV in formskeleton after UV-AT's
-// heap had reused dirty pages.
+// Merge PSLG vertices at identical/near-identical UV (self-touching boundaries).
+inline void weldCoincidentPslgVertices(Eigen::MatrixXd& V, Eigen::MatrixXi& E, double tol) {
+  const int n = static_cast<int>(V.rows());
+  if (n == 0) return;
+  tol = std::max(tol, kEps);
+
+  std::vector<int> remap(static_cast<size_t>(n), -1);
+  std::vector<int> rep;
+  rep.reserve(static_cast<size_t>(n));
+  int nv = 0;
+  for (int i = 0; i < n; ++i) {
+    int hit = -1;
+    for (int k = 0; k < nv; ++k) {
+      if ((V.row(i) - V.row(rep[static_cast<size_t>(k)])).norm() <= tol) {
+        hit = k;
+        break;
+      }
+    }
+    if (hit < 0) {
+      rep.push_back(i);
+      remap[static_cast<size_t>(i)] = nv++;
+    } else {
+      remap[static_cast<size_t>(i)] = hit;
+    }
+  }
+
+  Eigen::MatrixXd V2(nv, 2);
+  for (int k = 0; k < nv; ++k) {
+    V2.row(k) = V.row(rep[static_cast<size_t>(k)]);
+  }
+
+  std::vector<Eigen::Vector2i> edges;
+  edges.reserve(static_cast<size_t>(E.rows()));
+  for (int e = 0; e < E.rows(); ++e) {
+    const int a = remap[static_cast<size_t>(E(e, 0))];
+    const int b = remap[static_cast<size_t>(E(e, 1))];
+    if (a != b) edges.emplace_back(a, b);
+  }
+
+  V = std::move(V2);
+  E.resize(static_cast<int>(edges.size()), 2);
+  for (int e = 0; e < E.rows(); ++e) {
+    E.row(e) = edges[static_cast<size_t>(e)].transpose();
+  }
+}
+
+// In-process Triangle CDT. On failure tries simpler flags, then returns false
+// so buildTriangle can fall back to Lightweight.
 inline bool triangulateIsolated(const Eigen::MatrixXd& V, const Eigen::MatrixXi& E,
                                 const Eigen::MatrixXd& H, Eigen::MatrixXd& V_out,
                                 Eigen::MatrixXi& F_out) {
   V_out.resize(0, 2);
   F_out.resize(0, 3);
   if (V.rows() < 3 || E.rows() < 3) return false;
-  triangle_mesh::triangulate(V, E, H, "qYQ", V_out, F_out);
-  return V_out.rows() >= 3 && F_out.rows() > 0;
+
+  // Wrapper always appends "pzQ". Prefer no -Y first: allowing Steiner points on
+  // PSLG segments avoids many segmentintersection topology failures on cut UV
+  // boundaries. Keep -Y variants as stricter fallbacks.
+  const char* flag_candidates[] = {"q", "", "qY", "Y"};
+  for (const char* flags : flag_candidates) {
+    try {
+      triangle_mesh::triangulate(V, E, H, flags, V_out, F_out);
+      if (V_out.rows() >= 3 && F_out.rows() > 0) return true;
+    } catch (const std::exception&) {
+      V_out.resize(0, 2);
+      F_out.resize(0, 3);
+    }
+  }
+  return false;
 }
 
 enum class Mode { Lightweight, Triangle };
@@ -372,9 +431,15 @@ inline Scaffold buildTriangle(const Eigen::MatrixXd& X, const Eigen::MatrixXi& F
   Eigen::MatrixXd H(1, 2);
   H.row(0) = hole.transpose();
 
+  const double weld_tol =
+      std::max(kEps, 1.0e-9 * std::max(max_x - min_x, max_y - min_y));
+  weldCoincidentPslgVertices(Vpslg, E, weld_tol);
+
   Eigen::MatrixXd V_out;
   Eigen::MatrixXi F_out;
   if (!triangulateIsolated(Vpslg, E, H, V_out, F_out)) {
+    std::cerr << "uvat: Triangle scaffold CDT failed; using lightweight air mesh."
+              << std::endl;
     return buildLightweight(X, boundary_loops, avg_edge_length);
   }
 
