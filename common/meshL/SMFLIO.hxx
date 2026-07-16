@@ -202,6 +202,15 @@ class SMFLIO : public LIO {
     return outputToFile(filename);
   };
 
+  bool outputToFile(const char* const filename, bool isSaveNormal,
+                    bool isSaveTexcoord, bool isSaveBLoop, bool isSaveColor) {
+    setSaveNormal(isSaveNormal);
+    setSaveTexcoord(isSaveTexcoord);
+    setSaveBLoop(isSaveBLoop);
+    setSaveColor(isSaveColor);
+    return outputToFile(filename);
+  };
+
   bool outputToFile(const char* const filename, bool isSaveNormalization) {
     setSaveNormalization(isSaveNormalization);
     return outputToFile(filename);
@@ -241,7 +250,12 @@ class SMFLIO : public LIO {
           p *= mesh().maxLength();
           p += mesh().center();
         }
-        ofs << "v " << p.x() << " " << p.y() << " " << p.z() << std::endl;
+        ofs << "v " << p.x() << " " << p.y() << " " << p.z();
+        if (isSaveColor() && vt->hasColor()) {
+          const Eigen::Vector3d& c = vt->color();
+          ofs << " " << c.x() << " " << c.y() << " " << c.z();
+        }
+        ofs << std::endl;
         vt->setID(id);
         id++;
       }

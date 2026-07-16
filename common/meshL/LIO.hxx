@@ -19,6 +19,7 @@ class LIO {
   bool saveTexcoord_;
   bool saveNormal_;
   bool saveBLoop_;
+  bool saveColor_;
 
 public:
 
@@ -31,6 +32,7 @@ public:
     saveTexcoord_ = false;
     saveNormal_ = false;
     saveBLoop_ = false;
+    saveColor_ = false;
   };
   
   MeshL& mesh() { return *mesh_; };
@@ -45,6 +47,9 @@ public:
 
   bool isSaveBLoop() const { return saveBLoop_; };
   void setSaveBLoop( bool f ) { saveBLoop_ = f; };
+
+  bool isSaveColor() const { return saveColor_; };
+  void setSaveColor( bool f ) { saveColor_ = f; };
 };
 
 #endif // _LIO_HXX
