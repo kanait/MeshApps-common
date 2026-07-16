@@ -501,6 +501,54 @@ class GLPanel {
     for (int i = 0; i < 4; ++i) light_enabled_[i] = true;
   };
 
+  // Eye-space directional lights for headlight mode (camera at origin, look -Z).
+  // Shader uses lightDir = normalize(-light_position.xyz) for w==0.
+  static Eigen::Vector4f headlightEyeLight(int i) {
+    Eigen::Vector3f dir;
+    switch (i) {
+      case 0:  // Key: upper-right, from behind camera toward scene
+        dir = Eigen::Vector3f(-0.40f, -0.60f, -1.00f);
+        break;
+      case 1:  // Fill: upper-left
+        dir = Eigen::Vector3f(0.55f, -0.35f, -1.00f);
+        break;
+      case 2:  // Soft top fill
+        dir = Eigen::Vector3f(0.00f, -1.00f, -0.35f);
+        break;
+      default:  // Soft front fill (replaces world bottom light)
+        dir = Eigen::Vector3f(0.00f, -0.15f, -1.00f);
+        break;
+    }
+    dir.normalize();
+    return Eigen::Vector4f(dir.x(), dir.y(), dir.z(), 0.0f);
+  }
+
+  void uploadLightUniforms(const Eigen::Matrix4f& mv, const GLint* position_loc,
+                           const GLint* enabled_loc) {
+    for (int i = 0; i < NUM_LIGHTS; ++i) {
+      Eigen::Vector4f light_view;
+      if (headlight_) {
+        light_view = headlightEyeLight(i);
+      } else {
+        const Eigen::Vector4f light_world = light_position_[i];
+        const Eigen::Vector4f light_view4 = mv * light_world;
+        if (light_world.w() == 0.0f) {
+          const Eigen::Vector3f dir = light_view4.head<3>().normalized();
+          light_view << dir[0], dir[1], dir[2], 0.0f;
+        } else {
+          const Eigen::Vector3f pos = light_view4.hnormalized();
+          light_view << pos[0], pos[1], pos[2], 1.0f;
+        }
+      }
+      if (position_loc[i] >= 0) {
+        glUniform4fv(position_loc[i], 1, light_view.data());
+      }
+      if (enabled_loc[i] >= 0) {
+        glUniform1i(enabled_loc[i], light_enabled_[i] ? 1 : 0);
+      }
+    }
+  }
+
   void changeSize(int w, int h) {
     setW(w);
     setH(h);
@@ -693,32 +741,8 @@ class GLPanel {
     auto nmat = computeNormalMatrix(mv);
     glUniformMatrix3fv(shader_.normalmatrixLoc, 1, GL_FALSE, nmat.data());
 
-    // Lights
-    // ライトの位置（ワールド -> ビュー空間へ変換する必要あり）
-    for (int i = 0; i < NUM_LIGHTS; ++i) {
-      Eigen::Vector4f light_world =
-          light_position_[i];  // 入力ライト座標（world space）
-      Eigen::Vector4f light_view4 = mv * light_world;  // view space に変換
-      Eigen::Vector4f light_view;
-
-      if (light_world.w() == 0.0f) {
-        // 平行光源（w = 0.0）: 方向を正規化し w = 0.0 に
-        Eigen::Vector3f dir = light_view4.head<3>().normalized();
-        light_view << dir[0], dir[1], dir[2], 0.0f;
-      } else {
-        // 点光源（w ≠ 0.0）: 射影して w = 1.0 に
-        Eigen::Vector3f pos = light_view4.hnormalized();
-        light_view << pos[0], pos[1], pos[2], 1.0f;
-      }
-
-      // デバッグ出力（任意）
-      // std::cout << "light_view[" << i << "] = " << light_view.transpose() <<
-      // std::endl;
-
-      // glUniform4fv に変更
-      glUniform4fv(shader_.lightpositionLoc[i], 1, light_view.data());
-      glUniform1i(shader_.lightenabledLoc[i], light_enabled_[i] ? 1 : 0);
-    }
+    // Lights (world-fixed or camera-following headlight)
+    uploadLightUniforms(mv, shader_.lightpositionLoc, shader_.lightenabledLoc);
 
     // wireframe
     glUseProgram(shader_.wireframeShaderProgram);
@@ -773,22 +797,8 @@ class GLPanel {
     glUniformMatrix3fv(shader_.textureNormalmatrixLoc, 1, GL_FALSE,
                        nmat.data());
 
-    for (int i = 0; i < NUM_LIGHTS; ++i) {
-      Eigen::Vector4f light_world = light_position_[i];
-      Eigen::Vector4f light_view4 = mv * light_world;
-      Eigen::Vector4f light_view;
-
-      if (light_world.w() == 0.0f) {
-        Eigen::Vector3f dir = light_view4.head<3>().normalized();
-        light_view << dir[0], dir[1], dir[2], 0.0f;
-      } else {
-        Eigen::Vector3f pos = light_view4.hnormalized();
-        light_view << pos[0], pos[1], pos[2], 1.0f;
-      }
-
-      glUniform4fv(shader_.textureLightpositionLoc[i], 1, light_view.data());
-      glUniform1i(shader_.textureLightenabledLoc[i], light_enabled_[i] ? 1 : 0);
-    }
+    uploadLightUniforms(mv, shader_.textureLightpositionLoc,
+                        shader_.textureLightenabledLoc);
 
     glUseProgram(shader_.lines3dShaderProgram);
     glUniformMatrix4fv(shader_.lines3dProjectionLoc, 1, GL_FALSE, proj.data());
@@ -866,6 +876,10 @@ class GLPanel {
   void setMagObject(float f) { manip_.setMagObject(f); };
 
   // lights
+
+  bool isHeadlight() const { return headlight_; }
+  void setHeadlight(bool on) { headlight_ = on; }
+  void toggleHeadlight() { headlight_ = !headlight_; }
 
   Eigen::Vector3f light_position3(int i) const {
     return light_position_[i].head<3>();  // x, y, z
@@ -1219,6 +1233,7 @@ class GLPanel {
   std::array<Eigen::Vector4f, NUM_LIGHTS>
       light_position_;                          // 4 lights * 4 components
   std::array<bool, NUM_LIGHTS> light_enabled_;  // 有効フラグ
+  bool headlight_ = true;  // eye-space lights that follow the camera (default ON)
 
   // Transformation flags
   struct TransformFlags {
