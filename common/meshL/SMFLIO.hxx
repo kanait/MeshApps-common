@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <vector>
 
 #include "envDep.h"
 //using namespace std;
@@ -84,11 +85,10 @@ class SMFLIO : public LIO {
         ++v_count;
       }
 
-      // read normals
-      else if (!fw.compare("n")) {
+      // read normals (Wavefront OBJ: vn; legacy SMF-style: n)
+      else if (!fw.compare("vn") || !fw.compare("n")) {
         std::istringstream isstr(cline);
 
-        // "n"
         std::string str;
         isstr >> str;
         double x, y, z;
@@ -121,7 +121,7 @@ class SMFLIO : public LIO {
         tcoord_p.push_back(tc);
       }
 
-      // read faces
+      // read faces (Wavefront: f v, f v/vt, f v//vn, f v/vt/vn)
       else if (!fw.compare("f")) {
         std::istringstream isstr(cline);
 
@@ -131,29 +131,57 @@ class SMFLIO : public LIO {
 
         std::shared_ptr<FaceL> fc = mesh().addFace();
         while (isstr >> str) {
-          tokenizer tok(str, "/");
-
-          // vertex
-          std::string val = tok.next();
+          // Keep empty fields so "1//2" → {"1","","2"}
+          std::vector<std::string> parts;
+          {
+            size_t start = 0;
+            for (size_t i = 0; i <= str.size(); ++i) {
+              if (i == str.size() || str[i] == '/') {
+                parts.push_back(str.substr(start, i - start));
+                start = i + 1;
+              }
+            }
+          }
+          if (parts.empty() || parts[0].empty()) continue;
 
           int id;
-          std::istringstream ai(val);
-          ai >> id;
-          std::shared_ptr<HalfedgeL> he = mesh().addHalfedge(fc, vertex_p[id - 1]);
-
-          // normal
-          if (!(mesh().normals().empty())) {
-            val = tok.next();
-            std::istringstream ai(val);
+          {
+            std::istringstream ai(parts[0]);
             ai >> id;
-            he->setNormal(normal_p[id - 1]);
           }
-          // texcoord
-          if (!(mesh().texcoords().empty())) {
-            val = tok.next();
-            std::istringstream ai(val);
-            ai >> id;
-            he->setTexcoord(tcoord_p[id - 1]);
+          if (id < 1 || id > static_cast<int>(vertex_p.size())) continue;
+          std::shared_ptr<HalfedgeL> he =
+              mesh().addHalfedge(fc, vertex_p[static_cast<size_t>(id - 1)]);
+
+          auto parseIndex = [](const std::string& s, int& out) -> bool {
+            if (s.empty()) return false;
+            std::istringstream ai(s);
+            return static_cast<bool>(ai >> out);
+          };
+
+          if (parts.size() == 2) {
+            // f v/vt  or legacy f v/n (when only normals exist)
+            int idx = 0;
+            if (parseIndex(parts[1], idx)) {
+              if (!(mesh().texcoords().empty())) {
+                if (idx >= 1 && idx <= static_cast<int>(tcoord_p.size()))
+                  he->setTexcoord(tcoord_p[static_cast<size_t>(idx - 1)]);
+              } else if (!(mesh().normals().empty())) {
+                if (idx >= 1 && idx <= static_cast<int>(normal_p.size()))
+                  he->setNormal(normal_p[static_cast<size_t>(idx - 1)]);
+              }
+            }
+          } else if (parts.size() >= 3) {
+            // f v/vt/vn or f v//vn
+            int idx = 0;
+            if (parseIndex(parts[1], idx) && !(mesh().texcoords().empty())) {
+              if (idx >= 1 && idx <= static_cast<int>(tcoord_p.size()))
+                he->setTexcoord(tcoord_p[static_cast<size_t>(idx - 1)]);
+            }
+            if (parseIndex(parts[2], idx) && !(mesh().normals().empty())) {
+              if (idx >= 1 && idx <= static_cast<int>(normal_p.size()))
+                he->setNormal(normal_p[static_cast<size_t>(idx - 1)]);
+            }
           }
         }
 
@@ -266,7 +294,7 @@ class SMFLIO : public LIO {
       int id = 1;
       for ( auto& nm : mesh().normals() ) {
         Eigen::Vector3d& p = nm->point();
-        ofs << "n\t" << p.x() << " " << p.y() << " " << p.z() << std::endl;
+        ofs << "vn " << p.x() << " " << p.y() << " " << p.z() << std::endl;
         nm->setID(id);
         id++;
       }
@@ -277,7 +305,7 @@ class SMFLIO : public LIO {
       int id = 1;
       for ( auto& tc : mesh().texcoords() ) {
         Eigen::Vector3d& p = tc->point();
-        ofs << "vt\t" << p.x() << " " << p.y() << " " << p.z() << std::endl;
+        ofs << "vt " << p.x() << " " << p.y() << " " << p.z() << std::endl;
         tc->setID(id);
         id++;
       }
@@ -288,10 +316,14 @@ class SMFLIO : public LIO {
         ofs << "f ";
         for ( auto& he : fc->halfedges() ) {
           ofs << he->vertex()->id();
-          if (he->normal() && isSaveNormal())
-            ofs << "/" << he->normal()->id();
-          if (he->texcoord() && isSaveTexcoord())
-            ofs << "/" << he->texcoord()->id();
+          const bool has_n = he->normal() && isSaveNormal();
+          const bool has_t = he->texcoord() && isSaveTexcoord();
+          // Wavefront: f v, f v/vt, f v//vn, f v/vt/vn
+          if (has_t || has_n) {
+            ofs << "/";
+            if (has_t) ofs << he->texcoord()->id();
+            if (has_n) ofs << "/" << he->normal()->id();
+          }
           ofs << " ";
         }
         ofs << std::endl;
